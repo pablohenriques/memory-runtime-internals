@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Go — Memória & Runtime</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:    #0d1117;
+    --bg2:   #161b22;
+    --bg3:   #1c2128;
+    --border:#30363d;
+    --go:    #00acd7;
+    --go-dim:#0a4a5e;
+    --stack: #3fb950;
+    --stack-dim: #1a4a25;
+    --heap:  #d29922;
+    --heap-dim: #5a3e0a;
+    --gor:   #bc8cff;
+    --gor-dim: #3d2a6e;
+    --gc:    #f85149;
+    --gc-dim:#5a1a18;
+    --text:  #e6edf3;
+    --text-dim: #7d8590;
+    --accent:#00acd7;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+  }
+
+  .main { max-width: 1200px; margin: 0 auto; padding: 28px 20px; }
+
+  /* Header */
+  .header { text-align: center; margin-bottom: 32px; }
+  .header h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: clamp(1.3rem, 3vw, 1.9rem);
+    font-weight: 600; color: var(--text); letter-spacing: -0.02em;
+  }
+  .header h1 span { color: var(--go); }
+  .header p { margin-top: 6px; color: var(--text-dim); font-size: 0.88rem; }
+
+  /* Go badge */
+  .go-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--go-dim); border: 1px solid var(--go);
+    border-radius: 6px; padding: 4px 12px; margin-bottom: 20px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--go);
+  }
+
+  /* Scenarios */
+  .scenarios { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+  .scen-btn {
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text-dim); padding: 7px 14px; border-radius: 6px;
+    cursor: pointer; font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem; transition: all 0.2s;
+  }
+  .scen-btn:hover { border-color: var(--go); color: var(--text); }
+  .scen-btn.active { background: var(--go); color: #0d1117; border-color: var(--go); font-weight: 600; }
+
+  /* Progress */
+  .progress-bar { height: 2px; background: var(--border); border-radius: 1px; margin-bottom: 24px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--go); border-radius: 1px; transition: width 0.4s ease; }
+
+  /* Architecture grid */
+  .arch { display: grid; grid-template-columns: 180px 1fr; gap: 14px; margin-bottom: 20px; }
+
+  /* Binary box — substitui JVM/Metaspace */
+  .binary-box {
+    background: var(--bg2); border: 1px solid var(--go-dim);
+    border-radius: 10px; padding: 16px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .box-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .box-title .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .binary-box .box-title { color: var(--go); }
+
+  .bin-layer {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; transition: all 0.3s;
+  }
+  .bin-layer .layer-name { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; font-weight: 600; margin-bottom: 3px; }
+  .bin-layer .layer-info { font-size: 0.65rem; color: var(--text-dim); }
+  .bin-layer.active-layer { border-color: var(--go); box-shadow: 0 0 10px rgba(0,172,215,0.2); }
+  .bin-layer.active-layer .layer-name { color: var(--go); }
+
+  /* Runtime box */
+  .runtime-box {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px;
+  }
+  .runtime-box .box-title { color: var(--go); margin-bottom: 14px; }
+
+  .go-container {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px;
+  }
+  .go-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem;
+    font-weight: 600; color: var(--accent); text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .go-regions { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+
+  .region {
+    border-radius: 6px; padding: 10px;
+    border: 1px solid var(--border); transition: all 0.3s;
+  }
+  .region-stack { background: rgba(63,185,80,0.04); }
+  .region-stack.active { border-color: var(--stack); box-shadow: 0 0 14px rgba(63,185,80,0.2); }
+  .region-heap  { background: rgba(210,153,34,0.04); }
+  .region-heap.active  { border-color: var(--heap);  box-shadow: 0 0 14px rgba(210,153,34,0.2); }
+  .region-gor   { background: rgba(188,140,255,0.04); }
+  .region-gor.active   { border-color: var(--gor);   box-shadow: 0 0 14px rgba(188,140,255,0.2); }
+  .region-gc    { background: rgba(248,81,73,0.04); }
+  .region-gc.active    { border-color: var(--gc);    box-shadow: 0 0 14px rgba(248,81,73,0.2); }
+
+  .region-name { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .region-stack .region-name { color: var(--stack); }
+  .region-heap  .region-name { color: var(--heap); }
+  .region-gor   .region-name { color: var(--gor); }
+  .region-gc    .region-name { color: var(--gc); }
+
+  .region-items { display: flex; flex-direction: column; gap: 3px; min-height: 70px; }
+
+  .mem-item {
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.63rem;
+    padding: 3px 7px; border-radius: 3px; border: 1px solid transparent;
+    opacity: 0; transform: translateY(5px); transition: all 0.35s;
+  }
+  .mem-item.visible { opacity: 1; transform: translateY(0); }
+  .stack-item { background: rgba(63,185,80,0.1); border-color: rgba(63,185,80,0.2); color: var(--stack); }
+  .heap-item  { background: rgba(210,153,34,0.1); border-color: rgba(210,153,34,0.2); color: var(--heap); }
+  .gor-item   { background: rgba(188,140,255,0.1); border-color: rgba(188,140,255,0.2); color: var(--gor); }
+  .gc-item    { background: rgba(248,81,73,0.1); border-color: rgba(248,81,73,0.2); color: var(--gc); }
+
+  /* Code + Steps */
+  .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+
+  .code-panel, .flow-panel {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px;
+  }
+  .panel-title { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--go); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+
+  .code-block {
+    background: #010409; border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px; font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.73rem; line-height: 1.8; overflow-x: auto;
+  }
+  .code-line { display: block; transition: all 0.3s; border-radius: 3px; padding: 1px 4px; }
+  .code-line.hl { background: rgba(0,172,215,0.12); color: var(--go); }
+
+  .kw { color: #ff7b72; }
+  .fn { color: #d2a8ff; }
+  .tp { color: var(--stack); }
+  .str { color: #a5d6ff; }
+  .num { color: var(--heap); }
+  .cm { color: #8b949e; }
+
+  /* Steps */
+  .steps-list { display: flex; flex-direction: column; gap: 6px; }
+  .step {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg3); transition: all 0.3s; cursor: pointer;
+  }
+  .step:hover { border-color: var(--go); }
+  .step.active-step { border-color: var(--go); background: rgba(0,172,215,0.06); }
+  .step-num { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; font-weight: 600; color: var(--go); min-width: 22px; padding-top: 1px; }
+  .step-title { font-size: 0.8rem; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .step-desc { font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; display: none; }
+  .step-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; padding: 2px 7px; border-radius: 20px; font-weight: 600; display: none; margin-top: 4px; }
+  .tag-stack { background: rgba(63,185,80,0.15); color: var(--stack); border: 1px solid rgba(63,185,80,0.3); }
+  .tag-heap  { background: rgba(210,153,34,0.15); color: var(--heap);  border: 1px solid rgba(210,153,34,0.3); }
+  .tag-gor   { background: rgba(188,140,255,0.15); color: var(--gor);  border: 1px solid rgba(188,140,255,0.3); }
+  .tag-gc    { background: rgba(248,81,73,0.15); color: var(--gc);     border: 1px solid rgba(248,81,73,0.3); }
+  .tag-bin   { background: rgba(0,172,215,0.15); color: var(--go);     border: 1px solid rgba(0,172,215,0.3); }
+
+  /* Controls */
+  .controls { display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; flex-wrap: wrap; }
+  .ctrl-btn {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 18px; border-radius: 6px; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem; font-weight: 600; transition: all 0.2s;
+  }
+  .ctrl-btn:hover { border-color: var(--go); color: var(--go); }
+  .ctrl-btn.primary { background: var(--go); color: #0d1117; border-color: var(--go); }
+  .ctrl-btn.primary:hover { filter: brightness(1.1); }
+
+  /* Explanation */
+  .explanation {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 22px; margin-bottom: 18px;
+  }
+  .explanation h3 { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--go); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .explanation p { font-size: 0.8rem; color: var(--text-dim); line-height: 1.7; }
+  .explanation p strong { color: var(--text); }
+
+  /* Diff box — diferenças Go vs JVM */
+  .diff-box {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 22px; margin-bottom: 18px;
+  }
+  .diff-box h3 { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--go); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  .diff-row { display: flex; gap: 12px; }
+  .diff-col { flex: 1; }
+  .diff-label { font-size: 0.68rem; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .diff-label.go-col { color: var(--go); }
+  .diff-label.jvm-col { color: var(--text-dim); }
+  .diff-item { font-size: 0.75rem; color: var(--text-dim); padding: 5px 0; border-bottom: 1px solid var(--border); line-height: 1.5; }
+  .diff-item strong { color: var(--text); }
+
+  /* Legend */
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; color: var(--text-dim); }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+  @media (max-width: 768px) {
+    .arch { grid-template-columns: 1fr; }
+    .bottom-grid { grid-template-columns: 1fr; }
+    .go-regions { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="main">
+
+  <div class="header">
+    <div style="display:flex;justify-content:center;margin-bottom:12px">
+      <div class="go-badge">
+        <span>●</span> Go Runtime — Memória & Execução
+      </div>
+    </div>
+    <h1>Go — <span>Memória & Runtime</span></h1>
+    <p>Visualize como o Go compila, aloca, gerencia goroutines e coleta lixo</p>
+  </div>
+
+  <!-- Cenários -->
+  <div class="scenarios">
+    <button class="scen-btn active" onclick="loadScenario(0)">var x = 42</button>
+    <button class="scen-btn" onclick="loadScenario(1)">func soma(a, b)</button>
+    <button class="scen-btn" onclick="loadScenario(2)">user := &User{}</button>
+    <button class="scen-btn" onclick="loadScenario(3)">go func()</button>
+    <button class="scen-btn" onclick="loadScenario(4)">Escape Analysis</button>
+  </div>
+
+  <div class="progress-bar"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+
+  <!-- Arquitetura -->
+  <div class="arch">
+
+    <!-- Binary / Runtime -->
+    <div class="binary-box">
+      <div class="box-title"><div class="dot"></div>Go Binary</div>
+      <div class="bin-layer" id="bin-text">
+        <div class="layer-name" style="color:var(--go)">Text segment</div>
+        <div class="layer-info">código compilado AOT</div>
+        <div id="bin-text-val" style="font-family:'IBM Plex Mono',monospace;font-size:0.63rem;color:var(--go);margin-top:5px;min-height:14px"></div>
+      </div>
+      <div class="bin-layer" id="bin-data">
+        <div class="layer-name">Data segment</div>
+        <div class="layer-info">variáveis globais, constantes</div>
+      </div>
+      <div class="bin-layer" id="bin-runtime">
+        <div class="layer-name">Go Runtime</div>
+        <div class="layer-info">scheduler, GC, goroutines</div>
+      </div>
+      <div style="margin-top:auto;font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--text-dim);border-top:1px solid var(--border);padding-top:8px;line-height:1.6">
+        Sem JVM · Sem bytecode<br>Nativo direto
+      </div>
+    </div>
+
+    <!-- Memória -->
+    <div class="runtime-box">
+      <div class="box-title"><div class="dot"></div>Memória do Processo Go</div>
+      <div class="go-container">
+        <div class="go-title">⬡ Go Runtime</div>
+        <div class="go-regions">
+
+          <div class="region region-stack" id="reg-stack">
+            <div class="region-name">Stack (goroutine)</div>
+            <div class="region-items" id="stack-items">
+              <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">aguardando...</div>
+            </div>
+          </div>
+
+          <div class="region region-heap" id="reg-heap">
+            <div class="region-name">Heap</div>
+            <div class="region-items" id="heap-items">
+              <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">aguardando...</div>
+            </div>
+          </div>
+
+          <div class="region region-gor" id="reg-gor">
+            <div class="region-name">Goroutines</div>
+            <div class="region-items" id="gor-items">
+              <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">aguardando...</div>
+            </div>
+          </div>
+
+          <div class="region region-gc" id="reg-gc">
+            <div class="region-name">GC / Tricolor</div>
+            <div class="region-items" id="gc-items">
+              <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">aguardando...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code + Steps -->
+  <div class="bottom-grid">
+    <div class="code-panel">
+      <div class="panel-title">// código go</div>
+      <div class="code-block" id="code-display">
+        <span class="code-line cm">// selecione um cenário acima</span>
+      </div>
+    </div>
+    <div class="flow-panel">
+      <div class="panel-title">fluxo de execução</div>
+      <div class="steps-list" id="steps-list"></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="runNext()">▶ Executar passo a passo</button>
+    <button class="ctrl-btn" onclick="runAll()">⚡ Executar tudo</button>
+    <button class="ctrl-btn" onclick="resetAll()">↺ Resetar</button>
+  </div>
+
+  <!-- Explanation -->
+  <div class="explanation" id="explanation-box">
+    <h3>📌 Como usar</h3>
+    <p>Escolha um <strong>cenário</strong> no topo e clique em <strong>Executar passo a passo</strong> para ver como o Go gerencia memória — sem JVM, sem bytecode, compilação nativa direta.</p>
+  </div>
+
+  <!-- Go vs JVM -->
+  <div class="diff-box">
+    <h3>Go vs JVM — diferenças fundamentais</h3>
+    <div class="diff-row">
+      <div class="diff-col">
+        <div class="diff-label go-col">Go</div>
+        <div class="diff-item"><strong>AOT</strong> — compila direto para binário nativo</div>
+        <div class="diff-item"><strong>Stack por goroutine</strong> — começa com ~2KB, cresce dinamicamente</div>
+        <div class="diff-item"><strong>Escape Analysis</strong> — compilador decide stack vs heap</div>
+        <div class="diff-item"><strong>GC tricolor</strong> — mark-and-sweep concorrente, baixa latência</div>
+        <div class="diff-item"><strong>Sem JIT</strong> — código nativo desde o início</div>
+        <div class="diff-item"><strong>Goroutines</strong> — M:N threading, ~2KB vs ~1MB thread OS</div>
+      </div>
+      <div class="diff-col">
+        <div class="diff-label jvm-col">JVM / Kotlin</div>
+        <div class="diff-item"><strong>JIT</strong> — bytecode compilado em runtime conforme aquece</div>
+        <div class="diff-item"><strong>Stack por thread OS</strong> — fixa, ~512KB–1MB</div>
+        <div class="diff-item"><strong>Sempre na Heap</strong> — objetos sempre alocados pelo GC</div>
+        <div class="diff-item"><strong>GC geracional</strong> — Eden, Survivor, Old Gen</div>
+        <div class="diff-item"><strong>Metaspace</strong> — metadados de classes em memória nativa</div>
+        <div class="diff-item"><strong>Threads OS</strong> — mais pesadas, limite do SO</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--go)"></div>Go Runtime / Binary</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--stack)"></div>Stack (goroutine)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--heap)"></div>Heap (objetos)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--gor)"></div>Goroutines</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--gc)"></div>GC Tricolor</div>
+  </div>
+
+</div>
+
+<script>
+const scenarios = [
+  {
+    name: "var x = 42",
+    code: [
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    <span class="kw">var</span> x <span class="tp">int</span> = <span class="num">42</span>     <span class="cm">// primitivo</span>`, hl: false },
+      { text: `    y := x * <span class="num">2</span>            <span class="cm">// inferência</span>`, hl: false },
+      { text: `    fmt.Println(y)`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "Binário carregado — main() inicia",
+        desc: "O Go compila para binário nativo AOT. Não há JVM, não há bytecode. O SO carrega o binário e inicia a goroutine principal com sua própria stack de ~2KB.",
+        tag: "stack", codeIdx: 0,
+        stack: ["goroutine main", "Frame: main()"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "main() nativo",
+        explain: "<strong>Sem JVM.</strong> O Go compila direto para código de máquina (x86, ARM...). O binário é executado pelo SO sem intermediário. A goroutine principal recebe uma stack própria — começa com ~2KB, cresce conforme necessário.",
+        regions: ["stack", "gor"]
+      },
+      {
+        title: "var x int = 42 → Stack",
+        desc: "int é um tipo primitivo no Go. Variáveis locais de tipos primitivos vão direto para a stack da goroutine — sem alocação na heap, sem GC envolvido.",
+        tag: "stack", codeIdx: 1,
+        stack: ["Frame: main()", "  x int = 42"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "MOV [rbp-8], 42",
+        explain: "<strong>Go e JVM concordam aqui:</strong> primitivos em variáveis locais ficam na stack. A diferença é que no Go o compilador decide isso em tempo de compilação via <strong>escape analysis</strong> — não há JIT para fazer isso em runtime.",
+        regions: ["stack"]
+      },
+      {
+        title: "y := x * 2 → Stack",
+        desc: "Inferência de tipo — Go deduz que y é int. Operação aritmética via registradores da CPU. Resultado guardado na stack.",
+        tag: "stack", codeIdx: 2,
+        stack: ["Frame: main()", "  x int = 42", "  y int = 84"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "IMUL → y=84",
+        explain: "O operador <strong>:=</strong> é short variable declaration — Go infere o tipo automaticamente. Como x é int, y também será int. A instrução de multiplicação é nativa — gerada em tempo de compilação, não precisa de JIT para otimizar.",
+        regions: ["stack"]
+      },
+      {
+        title: "fmt.Println(y) → execução encerra",
+        desc: "Função chamada. Frame empilhado e desempilhado. Goroutine principal encerra — processo Go termina.",
+        tag: "stack", codeIdx: 3,
+        stack: ["← frame destruído"],
+        heap: [], gor: ["g1: main (done)"], gc: [],
+        binActive: "bin-runtime", binVal: "goroutine exit",
+        explain: "Quando a goroutine <strong>main</strong> encerra, o processo Go inteiro termina — diferente de threads OS, que podem continuar. Frames da stack são liberados automaticamente, sem GC. O runtime do Go detecta o encerramento de main e limpa.",
+        regions: ["stack", "gor"]
+      }
+    ]
+  },
+  {
+    name: "func soma(a, b)",
+    code: [
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    r := <span class="fn">soma</span>(<span class="num">3</span>, <span class="num">5</span>)`, hl: false },
+      { text: `    fmt.Println(r)`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">soma</span>(a, b <span class="tp">int</span>) <span class="tp">int</span> {`, hl: false },
+      { text: `    resultado := a + b`, hl: false },
+      { text: `    <span class="kw">return</span> resultado`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "main() inicia na goroutine principal",
+        desc: "Stack da goroutine main criada. Frame de main() empilhado.",
+        tag: "stack", codeIdx: 0,
+        stack: ["goroutine main (2KB)", "Frame: main()"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "load main",
+        explain: "A goroutine principal tem sua própria stack. No Go, <strong>cada goroutine tem uma stack separada</strong> — diferente da JVM onde cada thread OS tem uma stack. A stack da goroutine começa pequena (~2KB) e cresce conforme necessário.",
+        regions: ["stack", "gor"]
+      },
+      {
+        title: "soma(3, 5) — novo frame empilhado",
+        desc: "Os argumentos são copiados por valor para o frame de soma(). Na mesma stack da goroutine main.",
+        tag: "stack", codeIdx: 5,
+        stack: ["Frame: soma()", "  a int = 3", "  b int = 5", "Frame: main()"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "CALL soma",
+        explain: "No Go, chamadas de função empilham frames na <strong>mesma stack da goroutine</strong>. Se a stack crescer além do limite, o Go a <strong>realoca automaticamente</strong> para um espaço maior — sem StackOverflowError como na JVM. Isso é chamado de <em>stack growth</em>.",
+        regions: ["stack"]
+      },
+      {
+        title: "resultado := a + b",
+        desc: "CPU soma via registradores. resultado armazenado no frame de soma().",
+        tag: "stack", codeIdx: 6,
+        stack: ["Frame: soma()", "  a int = 3", "  b int = 5", "  resultado int = 8", "Frame: main()"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "ADD → 8",
+        explain: "Instrução nativa ADD — sem bytecode, sem JIT, sem overhead de interpretação. O Go compila isso em tempo de build para a instrução de máquina exata do alvo (x86/ARM). Máxima performance desde a primeira execução.",
+        regions: ["stack"]
+      },
+      {
+        title: "return — frame destruído, valor retornado",
+        desc: "Frame de soma() desempilhado. Valor 8 retornado para main() via registrador.",
+        tag: "stack", codeIdx: 7,
+        stack: ["Frame: main()", "  r int = 8"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "RET → r=8",
+        explain: "O retorno de função no Go é semelhante à JVM — valor passado via registrador, frame destruído. A diferença: <strong>Go suporta múltiplos valores de retorno</strong> nativamente. Ex: <code>func divide(a, b int) (int, error)</code> — sem wrapper, sem exceção.",
+        regions: ["stack"]
+      }
+    ]
+  },
+  {
+    name: "user := &User{}",
+    code: [
+      { text: `<span class="kw">type</span> <span class="fn">User</span> <span class="kw">struct</span> {`, hl: false },
+      { text: `    Nome  <span class="tp">string</span>`, hl: false },
+      { text: `    Idade <span class="tp">int</span>`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    user := &<span class="fn">User</span>{<span class="str">"Ana"</span>, <span class="num">30</span>}  <span class="cm">// ponteiro</span>`, hl: false },
+      { text: `    fmt.Println(user.Nome)`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "Escape Analysis em tempo de compilação",
+        desc: "Antes de rodar, o compilador Go analisa se user pode escapar da função. Como tomamos o endereço (&User{}), ele escapa para a heap.",
+        tag: "bin", codeIdx: 6,
+        stack: ["Frame: main()"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "escape → heap",
+        explain: "<strong>Escape Analysis</strong> é a grande diferença do Go. O compilador decide em tempo de compilação se uma variável vai para a stack ou heap — sem GC decidindo isso em runtime. Use <code>go build -gcflags='-m'</code> para ver as decisões do compilador.",
+        regions: ["stack", "gor"]
+      },
+      {
+        title: "&User{} → alocado na Heap",
+        desc: "Como user escapa da função (é um ponteiro retornado), o compilador aloca na heap. A stack guarda apenas o ponteiro.",
+        tag: "heap", codeIdx: 6,
+        stack: ["Frame: main()", "  user *User → 0x4a3f"],
+        heap: ["User @ 0x4a3f", "  Nome → string@0x6b2a", "  Idade = 30"],
+        gor: ["g1: main (running)"], gc: ["monitorando heap"],
+        binActive: "bin-runtime", binVal: "malloc User",
+        explain: "<strong>Diferença crucial do Go:</strong> se você usar <code>user := User{}</code> (sem &), o compilador pode manter na stack se não escapar. Com <code>&User{}</code> (ponteiro), escapa para heap. Na JVM, <em>todo</em> objeto sempre vai para a Heap — sem exceção.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "string 'Ana' → também na Heap",
+        desc: "String em Go é uma struct com ponteiro + tamanho. O conteúdo fica na heap (ou no segmento de dados para literais).",
+        tag: "heap", codeIdx: 1,
+        stack: ["Frame: main()", "  user *User → 0x4a3f"],
+        heap: ["User @ 0x4a3f", "  Nome → 0x6b2a (ptr+len)", "  Idade = 30", `string @ 0x6b2a = "Ana"`],
+        gor: ["g1: main (running)"], gc: ["monitorando heap"],
+        binActive: "bin-data", binVal: `"Ana" literal`,
+        explain: "<strong>String no Go</strong> é diferente da JVM. É uma struct: <code>{ ptr *byte, len int }</code>. O ponteiro aponta para os bytes do conteúdo. Literais string são armazenados no segmento de dados do binário — imutáveis, sem alocação na heap.",
+        regions: ["heap", "gc"]
+      },
+      {
+        title: "GC Tricolor — marca objetos alcançáveis",
+        desc: "O GC tricolor do Go roda concorrentemente. Classifica objetos em branco (não visitado), cinza (visitado, filhos pendentes) e preto (visitado, filhos marcados).",
+        tag: "gc", codeIdx: 7,
+        stack: ["Frame: main()", "  user *User → 0x4a3f"],
+        heap: ["User @ 0x4a3f [preto]", `string "Ana" [preto]`],
+        gor: ["g1: main (running)"], gc: ["branco → cinza → preto", "concurrent mark", "STW mínimo"],
+        binActive: "bin-runtime", binVal: "GC tricolor",
+        explain: "<strong>GC Tricolor do Go</strong> vs GC Geracional da JVM: o Go usa mark-and-sweep tricolor concorrente — roda junto com sua aplicação, STW (Stop-The-World) mínimo (~microsegundos). A JVM usa GC geracional (Eden, Survivor, Old) — mais throughput mas pausas maiores. Go prioriza latência baixa.",
+        regions: ["heap", "gc"]
+      }
+    ]
+  },
+  {
+    name: "go func()",
+    code: [
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    <span class="kw">go</span> <span class="fn">tarefa</span>()      <span class="cm">// nova goroutine</span>`, hl: false },
+      { text: `    <span class="kw">go</span> <span class="fn">tarefa</span>()      <span class="cm">// outra goroutine</span>`, hl: false },
+      { text: `    time.Sleep(...)`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">tarefa</span>() {`, hl: false },
+      { text: `    x := <span class="num">1</span> + <span class="num">1</span>`, hl: false },
+      { text: `    fmt.Println(x)`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "main() inicia — goroutine principal",
+        desc: "Goroutine main criada com stack própria de ~2KB. Runtime Go inicia o scheduler M:N.",
+        tag: "gor", codeIdx: 0,
+        stack: ["goroutine main stack (2KB)", "Frame: main()"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-runtime", binVal: "scheduler M:N",
+        explain: "O Go usa um scheduler <strong>M:N</strong>: M goroutines mapeadas para N threads OS. Você pode ter milhares de goroutines com apenas alguns threads OS. Isso é o oposto da JVM onde cada thread Java é uma thread OS.",
+        regions: ["stack", "gor"]
+      },
+      {
+        title: "go tarefa() — goroutine 2 criada",
+        desc: "Palavra-chave 'go' cria uma goroutine nova com sua própria stack de ~2KB. Custo mínimo — muito mais barato que criar uma thread OS.",
+        tag: "gor", codeIdx: 1,
+        stack: ["goroutine main stack (2KB)", "Frame: main()"],
+        heap: [], gor: ["g1: main (running)", "g2: tarefa (runnable)"], gc: [],
+        binActive: "bin-runtime", binVal: "new goroutine ~2KB",
+        explain: "<strong>Goroutine vs Thread OS:</strong> criar uma thread OS custa ~1MB de stack e envolvimento do kernel. Criar uma goroutine custa ~2KB e é feito pelo runtime Go em user space. Você pode criar milhões de goroutines sem problemas.",
+        regions: ["gor"]
+      },
+      {
+        title: "go tarefa() — goroutine 3 criada",
+        desc: "Segunda goroutine criada. O scheduler Go decide qual executa em qual thread OS.",
+        tag: "gor", codeIdx: 2,
+        stack: ["goroutine main stack (2KB)"],
+        heap: [], gor: ["g1: main (sleeping)", "g2: tarefa (running)", "g3: tarefa (runnable)"], gc: [],
+        binActive: "bin-runtime", binVal: "schedule g2, g3",
+        explain: "O scheduler Go (<strong>GPM model</strong>): G = goroutines, P = processors (GOMAXPROCS), M = threads OS. O scheduler distribui G's entre os P's. Se um P bloqueia em I/O, o M é desassociado e outro G assume.",
+        regions: ["gor"]
+      },
+      {
+        title: "g2 e g3 executam — stacks independentes",
+        desc: "Cada goroutine tem sua própria stack, seu próprio frame de execução. Completamente independentes.",
+        tag: "gor", codeIdx: 7,
+        stack: ["g2 stack: x int = 2", "g3 stack: x int = 2"],
+        heap: [], gor: ["g1: main (sleeping)", "g2: tarefa (running)", "g3: tarefa (running)"], gc: [],
+        binActive: "bin-runtime", binVal: "parallel exec",
+        explain: "Cada goroutine tem <strong>stack independente</strong>. A variável <code>x</code> em g2 e <code>x</code> em g3 são completamente separadas — sem compartilhamento, sem race condition nesse caso. O Go encoraja comunicação por canais (<code>chan</code>) em vez de memória compartilhada.",
+        regions: ["stack", "gor"]
+      }
+    ]
+  },
+  {
+    name: "Escape Analysis",
+    code: [
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    a := <span class="fn">naStack</span>()   <span class="cm">// fica na stack</span>`, hl: false },
+      { text: `    b := <span class="fn">naHeap</span>()    <span class="cm">// escapa p/ heap</span>`, hl: false },
+      { text: `    fmt.Println(a, *b)`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">naStack</span>() <span class="tp">int</span> {`, hl: false },
+      { text: `    x := <span class="num">42</span>        <span class="cm">// não escapa</span>`, hl: false },
+      { text: `    <span class="kw">return</span> x        <span class="cm">// retorna valor</span>`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">naHeap</span>() *<span class="tp">int</span> {`, hl: false },
+      { text: `    x := <span class="num">42</span>        <span class="cm">// ESCAPA</span>`, hl: false },
+      { text: `    <span class="kw">return</span> &x       <span class="cm">// retorna ponteiro</span>`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "Compilador analisa escape — build time",
+        desc: "Antes de rodar, o compilador Go analisa quais variáveis 'escapam' da função. Isso determina onde cada variável será alocada.",
+        tag: "bin", codeIdx: 0,
+        stack: [], heap: [], gor: [], gc: [],
+        binActive: "bin-text", binVal: "escape analysis",
+        explain: "<strong>Escape Analysis</strong> é uma das maiores vantagens do Go sobre a JVM. O compilador decide em tempo de build se cada variável vai para stack ou heap. Isso elimina alocações desnecessárias na heap e reduz pressão no GC. Para ver: <code>go build -gcflags='-m' main.go</code>",
+        regions: []
+      },
+      {
+        title: "naStack() — x não escapa",
+        desc: "x é retornado por valor. Não existe referência externa a x depois que a função retorna. Compilador mantém na stack.",
+        tag: "stack", codeIdx: 7,
+        stack: ["Frame: naStack()", "  x int = 42  [stack]"],
+        heap: [], gor: ["g1: main (running)"], gc: [],
+        binActive: "bin-text", binVal: "x → stack",
+        explain: "Como <code>naStack()</code> retorna <strong>o valor</strong> (não o endereço), x não precisa existir depois que a função retorna. O compilador mantém x na stack — alocação gratuita, sem GC, sem overhead.",
+        regions: ["stack"]
+      },
+      {
+        title: "naHeap() — x ESCAPA para a Heap",
+        desc: "x é retornado como ponteiro &x. Isso significa que x precisa existir depois que naHeap() retornar. Compilador move para a heap.",
+        tag: "heap", codeIdx: 12,
+        stack: ["Frame: naHeap()", "  x *int → 0x3c7a  [heap]"],
+        heap: ["int @ 0x3c7a = 42  ← x escapou"],
+        gor: ["g1: main (running)"], gc: ["monitorando 0x3c7a"],
+        binActive: "bin-text", binVal: "x escapes → heap",
+        explain: "Retornar <strong>&x</strong> (endereço de x) significa que x precisa sobreviver ao retorno da função. O compilador automaticamente move x para a heap. Isso é diferente de C onde você teria undefined behavior — o Go garante a segurança.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "main() usa a e *b",
+        desc: "a é um valor int copiado da stack de naStack(). *b é uma dereferência do ponteiro — acessa o int na heap.",
+        tag: "stack", codeIdx: 3,
+        stack: ["Frame: main()", "  a int = 42        [copiado]", "  b *int → 0x3c7a   [ponteiro]"],
+        heap: ["int @ 0x3c7a = 42"],
+        gor: ["g1: main (running)"], gc: ["0x3c7a: alcançável"],
+        binActive: "bin-text", binVal: "deref *b",
+        explain: "<strong>Resumo do Escape Analysis:</strong> Stack = rápido, sem GC, destruído automaticamente. Heap = GC necessário, persiste além da função. O Go toma essa decisão automaticamente pelo compilador — você não precisa gerenciar memória manualmente como em C, mas tem mais controle que na JVM.",
+        regions: ["stack", "heap", "gc"]
+      }
+    ]
+  }
+];
+
+let currentScenario = 0;
+let currentStep = -1;
+let autoRunTimer = null;
+
+function loadScenario(idx) {
+  currentScenario = idx;
+  currentStep = -1;
+  document.querySelectorAll('.scen-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  renderCode();
+  renderSteps();
+  resetRegions();
+  updateProgress();
+  document.getElementById('explanation-box').innerHTML = `<h3>📌 Pronto</h3><p>Cenário: <strong>${scenarios[idx].name}</strong> — clique em <strong>Executar passo a passo</strong>.</p>`;
+  document.getElementById('bin-text-val').textContent = '';
+  document.querySelectorAll('.bin-layer').forEach(l => l.classList.remove('active-layer'));
+}
+
+function renderCode() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('code-display');
+  div.innerHTML = s.code.map((l, i) => `<span class="code-line" id="cl-${i}">${l.text || '&nbsp;'}</span>`).join('\n');
+}
+
+function renderSteps() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('steps-list');
+  div.innerHTML = s.steps.map((step, i) => `
+    <div class="step" id="step-${i}" onclick="jumpToStep(${i})">
+      <div class="step-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="step-content">
+        <div class="step-title">${step.title}</div>
+        <div class="step-desc">${step.desc}</div>
+        <span class="step-tag tag-${step.tag}">${step.tag.toUpperCase()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function resetRegions() {
+  ['stack','heap','gor','gc'].forEach(r => {
+    document.getElementById(`${r}-items`).innerHTML = `<div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">aguardando...</div>`;
+    document.getElementById(`reg-${r}`).classList.remove('active');
+  });
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+}
+
+function updateProgress() {
+  const s = scenarios[currentScenario];
+  const pct = currentStep < 0 ? 0 : ((currentStep + 1) / s.steps.length) * 100;
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function applyStep(idx) {
+  const s = scenarios[currentScenario];
+  const step = s.steps[idx];
+
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+  const cl = document.getElementById(`cl-${step.codeIdx}`);
+  if (cl) cl.classList.add('hl');
+
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.toggle('active-step', i === idx);
+    el.querySelector('.step-desc').style.display = i === idx ? 'block' : 'none';
+    el.querySelector('.step-tag').style.display = i === idx ? 'inline-block' : 'none';
+  });
+
+  ['stack','heap','gor','gc'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const items = step[r];
+    const region = document.getElementById(`reg-${r}`);
+    if (items && items.length > 0) {
+      el.innerHTML = items.map(it => `<div class="mem-item ${r}-item visible">${it}</div>`).join('');
+      region.classList.add('active');
+    } else {
+      el.innerHTML = `<div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">vazio</div>`;
+      region.classList.remove('active');
+    }
+  });
+
+  document.querySelectorAll('.bin-layer').forEach(l => l.classList.remove('active-layer'));
+  if (step.binActive) document.getElementById(step.binActive)?.classList.add('active-layer');
+  document.getElementById('bin-text-val').textContent = step.binVal || '';
+
+  document.getElementById('explanation-box').innerHTML = `<h3>💡 passo ${idx+1} — ${step.title}</h3><p>${step.explain}</p>`;
+  updateProgress();
+}
+
+function runNext() {
+  const s = scenarios[currentScenario];
+  currentStep++;
+  if (currentStep >= s.steps.length) {
+    currentStep = s.steps.length - 1;
+    document.getElementById('explanation-box').innerHTML = `<h3>✅ Simulação concluída</h3><p>Todos os passos executados. Clique em <strong>Resetar</strong> para recomeçar.</p>`;
+    return;
+  }
+  applyStep(currentStep);
+}
+
+function runAll() {
+  resetAll();
+  const s = scenarios[currentScenario];
+  let i = 0;
+  function next() {
+    if (i >= s.steps.length) return;
+    currentStep = i; applyStep(i); i++;
+    autoRunTimer = setTimeout(next, 1300);
+  }
+  next();
+}
+
+function resetAll() {
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  currentStep = -1;
+  resetRegions();
+  renderCode();
+  renderSteps();
+  updateProgress();
+  document.getElementById('bin-text-val').textContent = '';
+  document.querySelectorAll('.bin-layer').forEach(l => l.classList.remove('active-layer'));
+  document.getElementById('explanation-box').innerHTML = `<h3>📌 Resetado</h3><p>Clique em <strong>Executar passo a passo</strong> para iniciar.</p>`;
+}
+
+function jumpToStep(idx) { currentStep = idx; applyStep(idx); }
+
+loadScenario(0);
+</script>
+</body>
+</html>

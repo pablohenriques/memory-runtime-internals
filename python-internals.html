@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CPython — Memória & Execução</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #0f1628;
+    --bg3: #151d35;
+    --border: #1e2d50;
+    --cpu: #ff6b35;
+    --cpu-dim: #7a3318;
+    --gc: #f7c59f;
+    --gc-dim: #7a6040;
+    --stack: #4ecdc4;
+    --stack-dim: #1e5c58;
+    --heap: #a78bfa;
+    --heap-dim: #4a3878;
+    --intern: #34d399;
+    --intern-dim: #1a6b4a;
+    --ram: #60a5fa;
+    --ram-dim: #1e3a6e;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --accent: #fbbf24;
+    --py-blue: #3776ab;
+    --py-yellow: #ffd43b;
+    --glow: 0 0 20px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    opacity: 0.4;
+  }
+
+  .main {
+    position: relative; z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .header .py-badge {
+    display: inline-block;
+    margin-top: 10px;
+    background: rgba(55,118,171,0.15);
+    border: 1px solid rgba(55,118,171,0.3);
+    color: var(--py-blue);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    padding: 4px 12px;
+    border-radius: 20px;
+    letter-spacing: 0.05em;
+  }
+
+  /* Scenario selector */
+  .scenarios {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .scenario-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    transition: all 0.2s;
+  }
+  .scenario-btn:hover { border-color: var(--accent); color: var(--text); }
+  .scenario-btn.active {
+    background: var(--accent);
+    color: #0a0e1a;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Architecture grid */
+  .arch {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: auto auto;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  /* CPU Box */
+  .cpu-box {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid var(--cpu-dim);
+    border-radius: 12px;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .box-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .box-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .cpu-box .box-title { color: var(--cpu); }
+
+  .cpu-layer {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    transition: all 0.3s;
+  }
+  .cpu-layer .layer-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .cpu-layer .layer-info {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+  .cpu-layer.active-layer {
+    border-color: var(--cpu);
+    box-shadow: 0 0 12px rgba(255,107,53,0.3);
+  }
+  .cpu-layer.active-layer .layer-name { color: var(--cpu); }
+
+  /* RAM Box */
+  .ram-box {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid var(--ram-dim);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .ram-box .box-title { color: var(--ram); margin-bottom: 16px; }
+
+  .runtime-container {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .runtime-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .runtime-regions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+  }
+
+  .region {
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .region::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .region.active::before { opacity: 1; }
+
+  .region-stack { background: rgba(78,205,196,0.05); }
+  .region-stack.active { border-color: var(--stack); box-shadow: 0 0 16px rgba(78,205,196,0.25); }
+  .region-stack::before { background: rgba(78,205,196,0.04); }
+
+  .region-heap { background: rgba(167,139,250,0.05); }
+  .region-heap.active { border-color: var(--heap); box-shadow: 0 0 16px rgba(167,139,250,0.25); }
+  .region-heap::before { background: rgba(167,139,250,0.04); }
+
+  .region-gc { background: rgba(247,197,159,0.05); }
+  .region-gc.active { border-color: var(--gc); box-shadow: 0 0 16px rgba(247,197,159,0.25); }
+  .region-gc::before { background: rgba(247,197,159,0.04); }
+
+  .region-intern { background: rgba(52,211,153,0.05); }
+  .region-intern.active { border-color: var(--intern); box-shadow: 0 0 16px rgba(52,211,153,0.25); }
+  .region-intern::before { background: rgba(52,211,153,0.04); }
+
+  .region-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .region-stack .region-name { color: var(--stack); }
+  .region-heap .region-name { color: var(--heap); }
+  .region-gc .region-name { color: var(--gc); }
+  .region-intern .region-name { color: var(--intern); }
+
+  .region-items { display: flex; flex-direction: column; gap: 4px; min-height: 80px; }
+
+  .mem-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: all 0.4s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mem-item.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .stack-item { background: rgba(78,205,196,0.1); border-color: rgba(78,205,196,0.2); color: var(--stack); }
+  .heap-item { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.2); color: var(--heap); }
+  .gc-item { background: rgba(247,197,159,0.1); border-color: rgba(247,197,159,0.2); color: var(--gc); }
+  .intern-item { background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.2); color: var(--intern); }
+
+  @keyframes pulse-item {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.8); }
+  }
+
+  /* Flow steps */
+  .flow-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .flow-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .step:hover { border-color: var(--accent); }
+  .step.active-step {
+    border-color: var(--accent);
+    background: rgba(251,191,36,0.06);
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 24px;
+    padding-top: 1px;
+  }
+  .step-content { flex: 1; }
+  .step-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+  .step-desc {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .step-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+    margin-top: 4px;
+    display: inline-block;
+  }
+  .tag-cpu { background: rgba(255,107,53,0.15); color: var(--cpu); border: 1px solid rgba(255,107,53,0.3); }
+  .tag-stack { background: rgba(78,205,196,0.15); color: var(--stack); border: 1px solid rgba(78,205,196,0.3); }
+  .tag-heap { background: rgba(167,139,250,0.15); color: var(--heap); border: 1px solid rgba(167,139,250,0.3); }
+  .tag-gc { background: rgba(247,197,159,0.15); color: var(--gc); border: 1px solid rgba(247,197,159,0.3); }
+  .tag-intern { background: rgba(52,211,153,0.15); color: var(--intern); border: 1px solid rgba(52,211,153,0.3); }
+
+  /* Code panel */
+  .code-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .code-panel .flow-title { margin-bottom: 12px; }
+  .code-block {
+    background: #060910;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .code-line { display: block; transition: all 0.3s; border-radius: 3px; padding: 1px 4px; }
+  .code-line.hl { background: rgba(251,191,36,0.12); color: var(--accent); }
+  .kw { color: #c792ea; }
+  .fn { color: #82aaff; }
+  .str { color: #c3e88d; }
+  .num { color: #f78c6c; }
+  .cm { color: #546e7a; }
+  .tp { color: var(--stack); }
+  .op { color: #89ddff; }
+  .bi { color: #ffcb6b; }
+  .dc { color: #f07178; }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .ctrl-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.primary {
+    background: var(--accent);
+    color: #0a0e1a;
+    border-color: var(--accent);
+  }
+  .ctrl-btn.primary:hover { filter: brightness(1.1); }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Explanation box */
+  .explanation {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .explanation h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .explanation p {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .explanation p strong { color: var(--text); }
+  .explanation p code {
+    background: var(--bg3);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--accent);
+  }
+
+  /* Progress indicator */
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  @media (max-width: 768px) {
+    .arch { grid-template-columns: 1fr; }
+    .cpu-box { grid-column: 1; grid-row: auto; }
+    .ram-box { grid-column: 1; grid-row: auto; }
+    .runtime-regions { grid-template-columns: 1fr 1fr; }
+    .side-grid { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="main">
+
+  <div class="header">
+    <h1>CPython — <span>Memória & Execução</span></h1>
+    <p>Visualize como seu código Python percorre CPU, Call Stack, Heap e Garbage Collector</p>
+    <div class="py-badge">CPython 3.12+ · Implementação de referência</div>
+  </div>
+
+  <!-- Scenario Selector -->
+  <div class="scenarios">
+    <button class="scenario-btn active" onclick="loadScenario(0)">x = 42</button>
+    <button class="scenario-btn" onclick="loadScenario(1)">def soma(a, b)</button>
+    <button class="scenario-btn" onclick="loadScenario(2)">obj = User()</button>
+    <button class="scenario-btn" onclick="loadScenario(3)">Ref Counting</button>
+    <button class="scenario-btn" onclick="loadScenario(4)">GIL & Threads</button>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-bar">
+    <div class="progress-fill" id="progress" style="width:0%"></div>
+  </div>
+
+  <!-- Architecture Visualization -->
+  <div class="arch">
+
+    <!-- CPU -->
+    <div class="cpu-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        CPU
+      </div>
+      <div class="cpu-layer" id="cpu-reg">
+        <div class="layer-name" style="color:var(--cpu)">Registradores</div>
+        <div class="layer-info">~bytes · ~0.3ns</div>
+        <div id="cpu-reg-val" style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent);margin-top:6px;min-height:16px"></div>
+      </div>
+      <div class="cpu-layer" id="cpu-l1">
+        <div class="layer-name">Cache L1</div>
+        <div class="layer-info">~64 KB · ~1ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l2">
+        <div class="layer-name">Cache L2</div>
+        <div class="layer-info">~256 KB · ~4ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l3">
+        <div class="layer-name">Cache L3</div>
+        <div class="layer-info">~8 MB · ~10ns</div>
+      </div>
+      <div style="margin-top:auto;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--text-dim);border-top:1px solid var(--border);padding-top:10px;line-height:1.6">
+        BUS → RAM ~100ns
+      </div>
+    </div>
+
+    <!-- RAM / CPython -->
+    <div class="ram-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        RAM — Processo CPython
+      </div>
+
+      <div class="runtime-container">
+        <div class="runtime-title">
+          🐍 CPython Runtime
+        </div>
+        <div class="runtime-regions">
+
+          <div class="region region-stack" id="reg-stack">
+            <div class="region-name">Call Stack</div>
+            <div class="region-items" id="stack-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>
+            </div>
+          </div>
+
+          <div class="region region-heap" id="reg-heap">
+            <div class="region-name">Heap (PyObject)</div>
+            <div class="region-items" id="heap-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>
+            </div>
+          </div>
+
+          <div class="region region-gc" id="reg-gc">
+            <div class="region-name">GC / Ref Count</div>
+            <div class="region-items" id="gc-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando coleta...</div>
+            </div>
+          </div>
+
+          <div class="region region-intern" id="reg-intern">
+            <div class="region-name">Internals</div>
+            <div class="region-items" id="intern-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando módulos...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code + Steps side by side -->
+  <div class="side-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+
+    <div class="code-panel">
+      <div class="flow-title"># código python</div>
+      <div class="code-block" id="code-display">
+        <span class="code-line cm"># selecione um cenário acima</span>
+        <span class="code-line cm"># e pressione Executar</span>
+      </div>
+    </div>
+
+    <div class="flow-panel">
+      <div class="flow-title">fluxo de execução</div>
+      <div class="steps-list" id="steps-list"></div>
+    </div>
+
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="runNext()" id="btn-run">▶ Executar passo a passo</button>
+    <button class="ctrl-btn" onclick="runAll()">⚡ Executar tudo</button>
+    <button class="ctrl-btn" onclick="resetAll()">↺ Resetar</button>
+  </div>
+
+  <!-- Explanation -->
+  <div class="explanation" id="explanation-box">
+    <h3>📌 Como usar</h3>
+    <p>Escolha um <strong>cenário</strong> no topo, depois clique em <strong>Executar passo a passo</strong> para ver como cada linha de código Python é processada pelo CPython — o que vai para a Call Stack, o que é alocado na Heap como PyObject, como o Reference Counting funciona e como o GC age.</p>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cpu)"></div>CPU / Execução</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--stack)"></div>Call Stack (frames)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--heap)"></div>Heap (PyObjects)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--gc)"></div>GC / Ref Count</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--intern)"></div>Internals (bytecode, cache)</div>
+  </div>
+
+</div>
+
+<script>
+const scenarios = [
+  // ─── Cenário 0: x = 42 ───
+  {
+    name: "x = 42",
+    code: [
+      { text: `<span class="cm"># tudo em Python é objeto</span>` },
+      { text: `<span class="kw">x</span> <span class="op">=</span> <span class="num">42</span>          <span class="cm"># int pequeno (cached)</span>` },
+      { text: `<span class="kw">y</span> <span class="op">=</span> <span class="kw">x</span> <span class="op">*</span> <span class="num">2</span>       <span class="cm"># novo objeto int</span>` },
+      { text: `<span class="bi">print</span>(y)        <span class="cm"># saída</span>` },
+      { text: `<span class="kw">del</span> <span class="kw">x</span>           <span class="cm"># decrementa refcount</span>` },
+    ],
+    steps: [
+      {
+        title: "CPython compila bytecode",
+        desc: "Antes de executar, o CPython compila o .py em bytecode (.pyc). O módulo __main__ é carregado.",
+        tag: "intern", codeIdx: 0,
+        stack: [],
+        heap: [], gc: [], intern: ["compile() → bytecode", "code object: <module>", "__builtins__ carregado"],
+        cpu: "l2", cpuVal: "compile",
+        explain: "Diferente do que muitos pensam, Python <strong>não é puramente interpretado</strong>. O CPython primeiro compila o código-fonte em <strong>bytecode</strong> — instruções de baixo nível para a Python Virtual Machine (PVM). Esse bytecode é armazenado em arquivos <code>.pyc</code> no diretório <code>__pycache__</code>.",
+        regions: ["intern"]
+      },
+      {
+        title: "Frame de <module> criado",
+        desc: "A PVM cria o frame principal para o módulo. Cada frame tem seu próprio namespace de variáveis locais.",
+        tag: "stack", codeIdx: 0,
+        stack: ["Frame: <module>", "  locals: {}"],
+        heap: [], gc: [], intern: ["code object: <module>", "__builtins__"],
+        cpu: "l1", cpuVal: "init frame",
+        explain: "No CPython, cada escopo de execução é um <strong>PyFrameObject</strong> na call stack do interpretador. O frame contém referências ao code object, ao namespace local (dict), e ao namespace global. Não é a mesma stack do C — é a stack interna da PVM.",
+        regions: ["stack", "intern"]
+      },
+      {
+        title: "x = 42 — Small Int Cache",
+        desc: "42 está no range [-5, 256]. O CPython já tem esse objeto pré-alocado na inicialização. x recebe uma referência ao objeto existente.",
+        tag: "heap", codeIdx: 1,
+        stack: ["Frame: <module>", "  locals: {x: →obj}"],
+        heap: ["PyLongObject(42) rc=1", "  ↑ pré-alocado (cache)"],
+        gc: ["x → 42: refcount = 1"], intern: ["code object: <module>", "small int cache [-5..256]"],
+        cpu: "reg", cpuVal: "LOAD_CONST 42",
+        explain: "Em Python, <strong>tudo é objeto</strong> — até o número 42. Porém, ints de -5 a 256 são <strong>pré-alocados</strong> na inicialização do CPython (small int cache). Quando você faz <code>x = 42</code>, nenhum objeto novo é criado — x simplesmente aponta para o objeto 42 que já existe. O <strong>refcount</strong> desse objeto é incrementado.",
+        regions: ["stack", "heap", "gc", "intern"]
+      },
+      {
+        title: "y = x * 2 — Novo PyObject",
+        desc: "84 está no range do cache, mas a operação * cria um novo caminho. O resultado 84 vem do cache se disponível.",
+        tag: "heap", codeIdx: 2,
+        stack: ["Frame: <module>", "  locals: {x: →42, y: →84}"],
+        heap: ["PyLongObject(42) rc=1", "PyLongObject(84) rc=1"],
+        gc: ["x → 42: refcount = 1", "y → 84: refcount = 1"], intern: ["code object: <module>", "small int cache [-5..256]"],
+        cpu: "reg", cpuVal: "BINARY_MULTIPLY",
+        explain: "A instrução <code>BINARY_MULTIPLY</code> no bytecode pega os dois operandos da stack da PVM, chama <code>PyNumber_Multiply</code> em C, e o resultado (84) é um novo <strong>PyLongObject</strong> na heap. Como 84 está no range [-5, 256], o CPython reutiliza o objeto do cache. O refcount de 84 é incrementado.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "print(y) — Chamada de função",
+        desc: "print() é um builtin escrito em C. Um novo frame é empilhado, o resultado é enviado para stdout.",
+        tag: "stack", codeIdx: 3,
+        stack: ["Frame: <module>", "Frame: print()", "  arg: →84"],
+        heap: ["PyLongObject(42) rc=1", "PyLongObject(84) rc=2", "PyUnicodeObject('84')"],
+        gc: ["84: refcount = 2 (y + arg)"], intern: ["code object: <module>", "sys.stdout"],
+        cpu: "l1", cpuVal: "CALL_FUNCTION",
+        explain: "Quando <code>print(y)</code> é chamado, a PVM empilha um novo frame. O <strong>refcount de 84 sobe para 2</strong> (y + argumento de print). Internamente, print() converte 84 em string (<code>PyUnicodeObject</code>), escreve em <code>sys.stdout</code>, e depois o frame de print é destruído.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "del x — Refcount decrementa",
+        desc: "del x remove a referência. O refcount do objeto 42 decrementa. Como é cached, não é destruído.",
+        tag: "gc", codeIdx: 4,
+        stack: ["Frame: <module>", "  locals: {y: →84}"],
+        heap: ["PyLongObject(42) rc=0*", "  *cached → não destruído", "PyLongObject(84) rc=1"],
+        gc: ["42: refcount = 0 (cached!)", "84: refcount = 1"], intern: ["code object: <module>", "small int cache protege 42"],
+        cpu: "reg", cpuVal: "DELETE_NAME",
+        explain: "O <code>del x</code> remove o nome 'x' do namespace local e <strong>decrementa o refcount</strong> de 42. Normalmente, refcount 0 = objeto destruído imediatamente. Mas ints no small int cache são <strong>protegidos</strong> — vivem até o interpretador encerrar. Esse é o mecanismo principal do GC do CPython: <strong>reference counting</strong> com destruição imediata.",
+        regions: ["stack", "heap", "gc"]
+      }
+    ]
+  },
+
+  // ─── Cenário 1: def soma(a, b) ───
+  {
+    name: "def soma(a, b)",
+    code: [
+      { text: `<span class="kw">def</span> <span class="fn">soma</span>(a, b):` },
+      { text: `    <span class="kw">return</span> a <span class="op">+</span> b` },
+      { text: `` },
+      { text: `<span class="kw">resultado</span> <span class="op">=</span> <span class="fn">soma</span>(<span class="num">10</span>, <span class="num">20</span>)` },
+      { text: `<span class="bi">print</span>(resultado)` },
+    ],
+    steps: [
+      {
+        title: "def soma — cria Code Object",
+        desc: "A instrução def não executa o corpo da função. Ela cria um objeto função com o bytecode compilado.",
+        tag: "intern", codeIdx: 0,
+        stack: ["Frame: <module>"],
+        heap: ["PyFunctionObject(soma)", "  ↳ code object", "  ↳ globals ref"],
+        gc: ["soma func: refcount = 1"], intern: ["code: <module>", "code: soma (compilado)", "MAKE_FUNCTION"],
+        cpu: "l1", cpuVal: "MAKE_FUNCTION",
+        explain: "O <code>def</code> em Python é uma <strong>instrução executável</strong>, não apenas uma declaração. Quando a PVM encontra <code>def soma</code>, ela cria um <strong>PyFunctionObject</strong> na heap que encapsula o code object (bytecode já compilado), a referência aos globals, e valores padrão de argumentos. O nome 'soma' é adicionado ao namespace local.",
+        regions: ["stack", "heap", "intern"]
+      },
+      {
+        title: "soma(10, 20) — prepara chamada",
+        desc: "CPython avalia os argumentos (10 e 20 vêm do small int cache) e prepara o CALL.",
+        tag: "stack", codeIdx: 3,
+        stack: ["Frame: <module>", "  preparando CALL..."],
+        heap: ["PyFunctionObject(soma)", "PyLongObject(10) rc=2", "PyLongObject(20) rc=2"],
+        gc: ["10: rc=2 (cache+arg)", "20: rc=2 (cache+arg)"], intern: ["code: <module>", "code: soma", "PRECALL → CALL"],
+        cpu: "l1", cpuVal: "PRECALL",
+        explain: "Antes do <code>CALL</code>, o CPython 3.12+ usa <strong>PRECALL</strong> para preparar. Os argumentos 10 e 20 são empurrados para a stack da PVM. Como estão no range [-5, 256], vêm do <strong>small int cache</strong> — refcount sobe porque agora há mais uma referência (o argumento).",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "Novo frame — soma() executando",
+        desc: "Um novo PyFrameObject é criado. Os parâmetros a e b apontam para os objetos 10 e 20.",
+        tag: "stack", codeIdx: 1,
+        stack: ["Frame: <module>", "Frame: soma()", "  a: →10", "  b: →20"],
+        heap: ["PyFunctionObject(soma)", "PyLongObject(10) rc=3", "PyLongObject(20) rc=3"],
+        gc: ["10: rc=3 (cache+arg+local)", "20: rc=3 (cache+arg+local)"], intern: ["code: soma executando", "LOAD_FAST a", "LOAD_FAST b"],
+        cpu: "reg", cpuVal: "BINARY_ADD",
+        explain: "A PVM cria um <strong>novo frame</strong> para soma(). As variáveis <code>a</code> e <code>b</code> são armazenadas no array <strong>fast locals</strong> do frame — é mais rápido que um dict. O bytecode usa <code>LOAD_FAST</code> (acesso por índice) em vez de <code>LOAD_NAME</code> (busca por nome no dict). Essa é uma das otimizações do CPython.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "return a + b — resultado na stack",
+        desc: "BINARY_ADD cria um novo PyLongObject(30). RETURN_VALUE desempilha o frame de soma().",
+        tag: "stack", codeIdx: 1,
+        stack: ["Frame: <module>", "  resultado: →30"],
+        heap: ["PyLongObject(30) rc=1", "PyLongObject(10) rc=1*", "PyLongObject(20) rc=1*"],
+        gc: ["30: rc=1 (resultado)", "10, 20: rc volta ao cache"], intern: ["code: <module>", "RETURN_VALUE", "frame soma() destruído"],
+        cpu: "reg", cpuVal: "RETURN_VALUE",
+        explain: "O <code>BINARY_ADD</code> cria <strong>PyLongObject(30)</strong> na heap. O <code>RETURN_VALUE</code> coloca o resultado na stack da PVM e <strong>destrói o frame</strong> de soma(). Os refcounts de 10 e 20 são decrementados pois as variáveis locais <code>a</code> e <code>b</code> deixam de existir. O frame é reciclado via <strong>frame free list</strong>.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "print(resultado) — saída final",
+        desc: "print converte 30 em string e escreve em stdout. O programa encerra.",
+        tag: "stack", codeIdx: 4,
+        stack: ["Frame: <module>", "Frame: print()", "  arg: →30"],
+        heap: ["PyLongObject(30) rc=2", "PyUnicodeObject('30')"],
+        gc: ["30: rc=2 (resultado+arg)"], intern: ["sys.stdout.write()", "flush buffer"],
+        cpu: "l1", cpuVal: "CALL print",
+        explain: "O <code>print</code> é uma função <strong>builtin</strong> implementada em C (<code>builtin_print</code> em <code>bltinmodule.c</code>). Ela chama <code>PyObject_Str()</code> para converter 30 em <code>PyUnicodeObject</code>, depois escreve em <code>sys.stdout</code>. Após o print, o frame é destruído e os refcounts ajustados.",
+        regions: ["stack", "heap"]
+      }
+    ]
+  },
+
+  // ─── Cenário 2: obj = User() ───
+  {
+    name: "obj = User()",
+    code: [
+      { text: `<span class="kw">class</span> <span class="tp">User</span>:` },
+      { text: `    <span class="kw">def</span> <span class="fn">__init__</span>(self, nome):` },
+      { text: `        self.nome <span class="op">=</span> nome` },
+      { text: `` },
+      { text: `<span class="kw">u</span> <span class="op">=</span> <span class="tp">User</span>(<span class="str">"Ana"</span>)` },
+      { text: `<span class="bi">print</span>(u.nome)` },
+    ],
+    steps: [
+      {
+        title: "class User — cria tipo",
+        desc: "O bloco class é executado como um mini-módulo. O CPython cria um PyTypeObject para User.",
+        tag: "intern", codeIdx: 0,
+        stack: ["Frame: <module>", "Frame: <class User>"],
+        heap: ["PyTypeObject(User)", "  ↳ tp_init → __init__", "  ↳ __dict__: {}"],
+        gc: ["User type: rc=1"], intern: ["code: <module>", "BUILD_CLASS", "type.__new__()"],
+        cpu: "l1", cpuVal: "BUILD_CLASS",
+        explain: "O <code>class</code> em Python é <strong>executado em tempo de execução</strong>. O CPython cria um frame temporário para o corpo da classe, executa-o (definindo métodos), depois chama <code>type.__new__()</code> para criar o <strong>PyTypeObject</strong>. Esse objeto tipo fica na heap e contém o ponteiro para <code>__init__</code>, o MRO (Method Resolution Order), e o <code>__dict__</code> da classe.",
+        regions: ["stack", "heap", "intern"]
+      },
+      {
+        title: "User('Ana') — __call__ do tipo",
+        desc: "Chamar User() invoca type.__call__, que chama __new__ (aloca) e __init__ (inicializa).",
+        tag: "heap", codeIdx: 4,
+        stack: ["Frame: <module>", "Frame: type.__call__()"],
+        heap: ["PyTypeObject(User)", "alocando PyObject...", "PyUnicodeObject('Ana') rc=1"],
+        gc: ["'Ana': rc=1"], intern: ["tp_call → type.__call__", "object.__new__(User)"],
+        cpu: "l1", cpuVal: "CALL User",
+        explain: "Quando você escreve <code>User('Ana')</code>, o CPython chama <code>type.__call__(User, 'Ana')</code>. Isso faz duas coisas: primeiro <code>User.__new__(User)</code> para <strong>alocar memória</strong> na heap (via <code>pymalloc</code>), depois <code>User.__init__(self, 'Ana')</code> para <strong>inicializar</strong>. A string 'Ana' é um <code>PyUnicodeObject</code>.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "__init__(self, nome) — atributos",
+        desc: "self.nome = nome cria uma entrada no __dict__ da instância. O atributo aponta para o mesmo objeto string.",
+        tag: "heap", codeIdx: 2,
+        stack: ["Frame: <module>", "Frame: __init__()", "  self: →obj", "  nome: →'Ana'"],
+        heap: ["PyObject(User instance)", "  __dict__: {nome: →'Ana'}", "PyUnicodeObject('Ana') rc=3", "PyTypeObject(User)"],
+        gc: ["'Ana': rc=3 (arg+local+attr)", "User inst: rc=1"], intern: ["STORE_ATTR nome", "instance.__dict__[nome]"],
+        cpu: "reg", cpuVal: "STORE_ATTR",
+        explain: "O <code>self.nome = nome</code> usa o bytecode <code>STORE_ATTR</code>. Internamente, isso insere a chave 'nome' no <strong>__dict__</strong> da instância (um PyDictObject). O refcount de 'Ana' sobe para 3: argumento, variável local <code>nome</code>, e atributo <code>self.nome</code>. O <code>__dict__</code> é onde Python armazena atributos de instância.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "u = User(...) — referência salva",
+        desc: "__init__ retorna, frame destruído. u recebe referência ao objeto User criado.",
+        tag: "stack", codeIdx: 4,
+        stack: ["Frame: <module>", "  u: →User instance"],
+        heap: ["PyObject(User instance)", "  __dict__: {nome: →'Ana'}", "PyUnicodeObject('Ana') rc=1", "PyTypeObject(User)"],
+        gc: ["User inst: rc=1 (u)", "'Ana': rc=1 (attr)"], intern: ["code: <module>", "STORE_NAME u"],
+        cpu: "reg", cpuVal: "STORE_NAME",
+        explain: "Quando <code>__init__</code> retorna, seu frame é destruído. Os refcounts dos parâmetros locais são decrementados. A variável <code>u</code> no módulo agora é a <strong>única referência</strong> ao objeto User. Se <code>u</code> for deletado, o refcount cai para 0 e o objeto é <strong>imediatamente destruído</strong> — incluindo todos os seus atributos.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "u.nome — acesso ao atributo",
+        desc: "CPython busca 'nome' primeiro no __dict__ da instância, depois na classe (MRO).",
+        tag: "heap", codeIdx: 5,
+        stack: ["Frame: <module>", "Frame: print()", "  arg: →'Ana'"],
+        heap: ["PyObject(User instance)", "  __dict__: {nome: →'Ana'}", "PyUnicodeObject('Ana') rc=2"],
+        gc: ["'Ana': rc=2 (attr+arg)"], intern: ["LOAD_ATTR nome", "→ inst.__dict__ ✓", "→ type.__dict__ (skip)"],
+        cpu: "l1", cpuVal: "LOAD_ATTR",
+        explain: "O acesso <code>u.nome</code> usa <code>LOAD_ATTR</code>. O CPython segue a ordem: 1️⃣ <strong>data descriptors</strong> na classe, 2️⃣ <strong>instance __dict__</strong>, 3️⃣ <strong>non-data descriptors</strong> na classe. Como 'nome' está no __dict__ da instância, é encontrado no passo 2. Essa busca é acelerada internamente via <strong>inline caching</strong> no CPython 3.11+.",
+        regions: ["stack", "heap"]
+      }
+    ]
+  },
+
+  // ─── Cenário 3: Ref Counting ───
+  {
+    name: "Ref Counting",
+    code: [
+      { text: `<span class="kw">class</span> <span class="tp">Node</span>:` },
+      { text: `    <span class="kw">def</span> <span class="fn">__init__</span>(self):` },
+      { text: `        self.ref <span class="op">=</span> <span class="kw">None</span>` },
+      { text: `` },
+      { text: `<span class="kw">a</span> <span class="op">=</span> <span class="tp">Node</span>()` },
+      { text: `<span class="kw">b</span> <span class="op">=</span> <span class="tp">Node</span>()` },
+      { text: `a.ref <span class="op">=</span> b   <span class="cm"># a → b</span>` },
+      { text: `b.ref <span class="op">=</span> a   <span class="cm"># b → a  (ciclo!)</span>` },
+      { text: `<span class="kw">del</span> a; <span class="kw">del</span> b  <span class="cm"># refcount > 0!</span>` },
+      { text: `<span class="cm"># gc.collect() resolve</span>` },
+    ],
+    steps: [
+      {
+        title: "Dois objetos Node criados",
+        desc: "a e b são objetos Node independentes. Cada um tem refcount = 1.",
+        tag: "heap", codeIdx: 5,
+        stack: ["Frame: <module>", "  a: →Node_A", "  b: →Node_B"],
+        heap: ["Node_A {ref: None} rc=1", "Node_B {ref: None} rc=1"],
+        gc: ["Node_A: refcount = 1", "Node_B: refcount = 1", "gc gen0: monitorando..."], intern: ["PyTypeObject(Node)", "gc tracking: on"],
+        cpu: "l1", cpuVal: "alloc 2 objs",
+        explain: "Objetos que podem conter referências a outros objetos (containers) são automaticamente <strong>rastreados pelo GC cíclico</strong>. O CPython usa 3 gerações: gen0 (novos), gen1 (sobreviventes), gen2 (longevos). Objetos recém-criados vão para a <strong>gen0</strong>.",
+        regions: ["stack", "heap", "gc"]
+      },
+      {
+        title: "a.ref = b — referência cruzada",
+        desc: "Node_A agora aponta para Node_B. O refcount de B sobe para 2.",
+        tag: "gc", codeIdx: 6,
+        stack: ["Frame: <module>", "  a: →Node_A", "  b: →Node_B"],
+        heap: ["Node_A {ref: →B} rc=1", "Node_B {ref: None} rc=2"],
+        gc: ["Node_A: rc=1 (a)", "Node_B: rc=2 (b + a.ref)"], intern: ["STORE_ATTR ref"],
+        cpu: "reg", cpuVal: "STORE_ATTR",
+        explain: "Quando fazemos <code>a.ref = b</code>, o refcount de Node_B <strong>sobe para 2</strong>: uma referência pela variável <code>b</code> e outra pelo atributo <code>a.ref</code>. O reference counting funciona perfeitamente aqui.",
+        regions: ["heap", "gc"]
+      },
+      {
+        title: "b.ref = a — CICLO criado!",
+        desc: "Agora B aponta para A. Temos um ciclo: A → B → A → B → ... O refcount de A sobe para 2.",
+        tag: "gc", codeIdx: 7,
+        stack: ["Frame: <module>", "  a: →Node_A", "  b: →Node_B"],
+        heap: ["Node_A {ref: →B} rc=2", "  ↑ ciclo: A→B→A", "Node_B {ref: →A} rc=2"],
+        gc: ["⚠ CICLO DETECTÁVEL", "Node_A: rc=2 (a + b.ref)", "Node_B: rc=2 (b + a.ref)"], intern: ["gc gen0: 2 tracked objs"],
+        cpu: "reg", cpuVal: "STORE_ATTR",
+        explain: "Agora temos uma <strong>referência circular</strong>: A.ref → B e B.ref → A. Ambos têm refcount = 2. Esse é o <strong>calcanhar de Aquiles</strong> do reference counting — ele <strong>não consegue detectar ciclos</strong>. Mesmo sem nenhuma variável externa apontando, os refcounts nunca chegarão a 0.",
+        regions: ["heap", "gc"]
+      },
+      {
+        title: "del a; del b — refcount NÃO chega a 0",
+        desc: "As variáveis são removidas. Refcount cai para 1, mas os objetos se mantêm vivos mutuamente!",
+        tag: "gc", codeIdx: 8,
+        stack: ["Frame: <module>", "  locals: {}"],
+        heap: ["Node_A {ref: →B} rc=1 ⚠", "  ↕ ciclo mantém vivos!", "Node_B {ref: →A} rc=1 ⚠"],
+        gc: ["⛔ MEMORY LEAK (parcial)", "Node_A: rc=1 (só b.ref)", "Node_B: rc=1 (só a.ref)", "ref counting falha aqui!"], intern: ["gc gen0: 2 unreachable?"],
+        cpu: "l1", cpuVal: "DELETE_NAME",
+        explain: "Após <code>del a</code> e <code>del b</code>, os refcounts caem para 1 — mas <strong>não para 0</strong>, pois cada objeto ainda é referenciado pelo outro. O reference counting <strong>não pode liberar esses objetos</strong>. Sem o GC cíclico, isso seria um memory leak permanente.",
+        regions: ["heap", "gc"]
+      },
+      {
+        title: "GC Cíclico — coleta geracional",
+        desc: "O garbage collector cíclico entra em ação. Ele detecta o ciclo e libera ambos os objetos.",
+        tag: "gc", codeIdx: 9,
+        stack: ["Frame: <module>"],
+        heap: ["← Node_A destruído", "← Node_B destruído"],
+        gc: ["✅ gc.collect() executado", "ciclo detectado: A↔B", "2 objetos liberados", "gen0: limpa"], intern: ["gc usa tp_traverse", "marca e varre ciclos"],
+        cpu: "l2", cpuVal: "gc.collect",
+        explain: "O <strong>GC cíclico</strong> do CPython usa um algoritmo de <strong>rastreamento geracional</strong>. Ele visita cada objeto rastreado, subtrai 1 do refcount para cada referência interna, e verifica quem fica com 0. Objetos em ciclos isolados (unreachable) são destruídos. O GC roda automaticamente quando a gen0 acumula objetos suficientes (threshold padrão: 700). Você pode forçar com <code>gc.collect()</code>.",
+        regions: ["heap", "gc", "intern"]
+      }
+    ]
+  },
+
+  // ─── Cenário 4: GIL & Threads ───
+  {
+    name: "GIL & Threads",
+    code: [
+      { text: `<span class="kw">import</span> threading` },
+      { text: `` },
+      { text: `<span class="kw">def</span> <span class="fn">conta</span>():` },
+      { text: `    <span class="kw">total</span> <span class="op">=</span> <span class="num">0</span>` },
+      { text: `    <span class="kw">for</span> _ <span class="kw">in</span> <span class="bi">range</span>(<span class="num">1_000_000</span>):` },
+      { text: `        total <span class="op">+=</span> <span class="num">1</span>` },
+      { text: `` },
+      { text: `<span class="kw">t1</span> <span class="op">=</span> threading.Thread(target<span class="op">=</span>conta)` },
+      { text: `<span class="kw">t2</span> <span class="op">=</span> threading.Thread(target<span class="op">=</span>conta)` },
+      { text: `t1.start(); t2.start()` },
+      { text: `t1.join(); t2.join()` },
+    ],
+    steps: [
+      {
+        title: "GIL — o que é?",
+        desc: "O Global Interpreter Lock é um mutex que protege o acesso a objetos Python. Só uma thread executa bytecode por vez.",
+        tag: "intern", codeIdx: 0,
+        stack: ["Frame: <module>"],
+        heap: [], gc: [],
+        intern: ["🔒 GIL = mutex global", "protege PyObject refcount", "1 thread por vez (bytecode)"],
+        cpu: "l1", cpuVal: "GIL init",
+        explain: "O <strong>GIL (Global Interpreter Lock)</strong> é um mutex que permite apenas <strong>uma thread executar bytecode Python por vez</strong>. Ele existe porque o reference counting do CPython não é thread-safe — sem o GIL, duas threads poderiam incrementar/decrementar refcounts simultaneamente, corrompendo a memória. O GIL é uma decisão de design do <strong>CPython</strong>, não da linguagem Python.",
+        regions: ["intern"]
+      },
+      {
+        title: "Duas threads criadas",
+        desc: "t1 e t2 são threads reais do OS. Cada uma tem seu próprio PyThreadState, mas compartilham o mesmo processo.",
+        tag: "stack", codeIdx: 9,
+        stack: ["[Main] Frame: <module>", "[T1] aguardando start...", "[T2] aguardando start..."],
+        heap: ["Thread(t1) rc=1", "Thread(t2) rc=1", "PyFunctionObject(conta)"],
+        gc: [], intern: ["GIL: main thread ✓", "T1: PyThreadState criado", "T2: PyThreadState criado"],
+        cpu: "l1", cpuVal: "CREATE threads",
+        explain: "Cada thread Python corresponde a uma <strong>thread real do sistema operacional</strong> (pthread no Linux, Win32 Thread no Windows). O CPython cria um <strong>PyThreadState</strong> para cada uma, contendo o frame stack, exception state e o estado do GIL. Mas atenção: apenas a thread que <strong>detém o GIL</strong> pode executar bytecode.",
+        regions: ["stack", "heap", "intern"]
+      },
+      {
+        title: "T1 adquire GIL — executa",
+        desc: "T1 obtém o GIL e começa a executar conta(). T2 fica bloqueada esperando.",
+        tag: "intern", codeIdx: 5,
+        stack: ["[Main] aguardando join...", "[T1] Frame: conta() ▶", "  total = 42356...", "[T2] ⏸ bloqueada pelo GIL"],
+        heap: ["PyLongObject(total_t1)"],
+        gc: ["refcounts protegidos pelo GIL"], intern: ["🔒 GIL: T1 ✓✓✓", "T2: aguardando GIL...", "troca a cada 5ms (3.12+)"],
+        cpu: "reg", cpuVal: "T1 executando",
+        explain: "T1 adquire o GIL e executa bytecode. T2 fica <strong>bloqueada no mutex</strong> do GIL. No CPython 3.12+, o GIL é liberado a cada ~5ms (antigamente era a cada 100 instruções de bytecode). Isso significa que para <strong>código CPU-bound</strong>, threads Python NÃO paralelizam — elas apenas alternam.",
+        regions: ["stack", "intern"]
+      },
+      {
+        title: "Troca de contexto — T2 executa",
+        desc: "Após ~5ms, o CPython força T1 a liberar o GIL. T2 adquire e continua. T1 fica bloqueada.",
+        tag: "intern", codeIdx: 5,
+        stack: ["[Main] aguardando join...", "[T1] ⏸ bloqueada pelo GIL", "[T2] Frame: conta() ▶", "  total = 28190..."],
+        heap: ["PyLongObject(total_t1)", "PyLongObject(total_t2)"],
+        gc: ["refcounts protegidos pelo GIL"], intern: ["🔒 GIL: T2 ✓✓✓", "T1: aguardando GIL...", "context switch ~5ms"],
+        cpu: "reg", cpuVal: "T2 executando",
+        explain: "O mecanismo de troca funciona assim: um <strong>timer thread</strong> sinaliza (via <code>eval_breaker</code>) que o GIL deve ser liberado. A thread atual verifica isso no loop de avaliação do bytecode e chama <code>drop_gil()</code>. A próxima thread que estava esperando chama <code>take_gil()</code>. Em código CPU-bound, 2 threads podem ser <strong>mais lentas</strong> que 1 por causa do overhead de troca.",
+        regions: ["stack", "intern"]
+      },
+      {
+        title: "Alternativa: multiprocessing / 3.13 free-threading",
+        desc: "Para paralelismo real: use multiprocessing (processos separados) ou o novo modo free-threading do CPython 3.13+.",
+        tag: "intern", codeIdx: 10,
+        stack: ["[Main] join() concluído", "[T1] finalizada ✓", "[T2] finalizada ✓"],
+        heap: [],
+        gc: [], intern: ["💡 multiprocessing: sem GIL", "💡 asyncio: I/O concorrente", "💡 CPython 3.13: --disable-gil", "💡 C extensions: libera GIL"],
+        cpu: "l1", cpuVal: "all done",
+        explain: "O GIL <strong>não afeta I/O-bound</strong> — durante I/O (rede, disco), o GIL é liberado e outras threads executam. Para <strong>CPU-bound real</strong>, as alternativas são: <strong>multiprocessing</strong> (processos separados, cada um com seu GIL), <strong>concurrent.futures</strong>, ou extensões C que liberam o GIL manualmente. O CPython 3.13+ introduz o modo experimental <strong>free-threading</strong> (<code>--disable-gil</code>) que remove o GIL, usando locks granulares por objeto.",
+        regions: ["stack", "intern"]
+      }
+    ]
+  }
+];
+
+let currentScenario = 0;
+let currentStep = -1;
+let autoRunTimer = null;
+
+function loadScenario(idx) {
+  currentScenario = idx;
+  currentStep = -1;
+  document.querySelectorAll('.scenario-btn').forEach((b, i) => {
+    b.classList.toggle('active', i === idx);
+  });
+  renderCode();
+  renderSteps();
+  resetRegions();
+  updateProgress();
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Pronto</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para começar a simulação do cenário: <strong>${scenarios[idx].name}</strong></p>
+  `;
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+}
+
+function renderCode() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('code-display');
+  div.innerHTML = s.code.map((l, i) =>
+    `<span class="code-line" id="cl-${i}">${l.text || '&nbsp;'}</span>`
+  ).join('\n');
+}
+
+function renderSteps() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('steps-list');
+  div.innerHTML = s.steps.map((step, i) => `
+    <div class="step" id="step-${i}" onclick="jumpToStep(${i})">
+      <div class="step-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="step-content">
+        <div class="step-title">${step.title}</div>
+        <div class="step-desc" style="display:none">${step.desc}</div>
+        <span class="step-tag tag-${step.tag}" style="display:none">${step.tag.toUpperCase()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function resetRegions() {
+  ['stack', 'heap', 'gc', 'intern'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const labels = { stack: 'aguardando execução...', heap: 'aguardando execução...', gc: 'aguardando coleta...', intern: 'aguardando módulos...' };
+    el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">${labels[r]}</div>`;
+    document.getElementById(`reg-${r}`).classList.remove('active');
+  });
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+}
+
+function updateProgress() {
+  const s = scenarios[currentScenario];
+  const pct = currentStep < 0 ? 0 : ((currentStep + 1) / s.steps.length) * 100;
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function applyStep(idx) {
+  const s = scenarios[currentScenario];
+  const step = s.steps[idx];
+
+  // highlight code
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+  const cl = document.getElementById(`cl-${step.codeIdx}`);
+  if (cl) cl.classList.add('hl');
+
+  // update steps UI
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.toggle('active-step', i === idx);
+    const desc = el.querySelector('.step-desc');
+    const tag = el.querySelector('.step-tag');
+    if (i === idx) {
+      desc.style.display = 'block';
+      tag.style.display = 'inline-block';
+    } else {
+      desc.style.display = 'none';
+      tag.style.display = 'none';
+    }
+  });
+
+  // update regions
+  ['stack', 'heap', 'gc', 'intern'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const items = step[r];
+    const region = document.getElementById(`reg-${r}`);
+    if (items && items.length > 0) {
+      el.innerHTML = items.map(it =>
+        `<div class="mem-item ${r}-item visible">${it}</div>`
+      ).join('');
+      region.classList.add('active');
+    } else {
+      el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">vazio</div>`;
+      region.classList.remove('active');
+    }
+  });
+
+  // CPU
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  const cpuMap = { reg: 'cpu-reg', l1: 'cpu-l1', l2: 'cpu-l2', l3: 'cpu-l3' };
+  const cpuEl = document.getElementById(cpuMap[step.cpu]);
+  if (cpuEl) cpuEl.classList.add('active-layer');
+  document.getElementById('cpu-reg-val').textContent = step.cpuVal || '';
+
+  // Explanation
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>💡 passo ${idx + 1} — ${step.title}</h3>
+    <p>${step.explain}</p>
+  `;
+
+  updateProgress();
+}
+
+function runNext() {
+  const s = scenarios[currentScenario];
+  currentStep++;
+  if (currentStep >= s.steps.length) {
+    currentStep = s.steps.length - 1;
+    document.getElementById('explanation-box').innerHTML = `
+      <h3>✅ Simulação concluída</h3>
+      <p>Todos os passos foram executados. Clique em <strong>Resetar</strong> para recomeçar ou escolha outro cenário.</p>
+    `;
+    return;
+  }
+  applyStep(currentStep);
+}
+
+function runAll() {
+  resetAll();
+  const s = scenarios[currentScenario];
+  let i = 0;
+  function next() {
+    if (i >= s.steps.length) return;
+    currentStep = i;
+    applyStep(i);
+    i++;
+    autoRunTimer = setTimeout(next, 1200);
+  }
+  next();
+}
+
+function resetAll() {
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  currentStep = -1;
+  resetRegions();
+  renderCode();
+  renderSteps();
+  updateProgress();
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Resetado</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para iniciar a simulação.</p>
+  `;
+}
+
+function jumpToStep(idx) {
+  currentStep = idx;
+  applyStep(idx);
+}
+
+// Init
+loadScenario(0);
+</script>
+</body>
+</html>

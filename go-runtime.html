@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Go Runtime — Memória & Execução</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080c14;
+    --bg2: #0d1320;
+    --bg3: #131b2e;
+    --border: #1c2a48;
+    --cpu: #ff6b35;
+    --cpu-dim: #7a3318;
+    --sched: #00bcd4;
+    --sched-dim: #005f6a;
+    --stack: #22d3ee;
+    --stack-dim: #0e5f6a;
+    --heap: #c084fc;
+    --heap-dim: #4a3878;
+    --code: #f59e0b;
+    --code-dim: #7a5010;
+    --gc: #34d399;
+    --gc-dim: #1a6b4a;
+    --ram: #60a5fa;
+    --ram-dim: #1e3a6e;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --accent: #00e5a0;
+    --glow: 0 0 20px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    opacity: 0.4;
+  }
+
+  .main {
+    position: relative; z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .header .go-badge {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+    background: rgba(0,229,160,0.1);
+    border: 1px solid rgba(0,229,160,0.3);
+    color: var(--accent);
+    letter-spacing: 0.06em;
+  }
+
+  /* Scenario selector */
+  .scenarios {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .scenario-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    transition: all 0.2s;
+  }
+  .scenario-btn:hover { border-color: var(--accent); color: var(--text); }
+  .scenario-btn.active {
+    background: var(--accent);
+    color: #080c14;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Architecture grid */
+  .arch {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  /* CPU Box */
+  .cpu-box {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid var(--cpu-dim);
+    border-radius: 12px;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .box-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .box-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .cpu-box .box-title { color: var(--cpu); }
+
+  .cpu-layer {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    transition: all 0.3s;
+  }
+  .cpu-layer .layer-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .cpu-layer .layer-info {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+  .cpu-layer.active-layer {
+    border-color: var(--cpu);
+    box-shadow: 0 0 12px rgba(255,107,53,0.3);
+  }
+  .cpu-layer.active-layer .layer-name { color: var(--cpu); }
+
+  /* RAM Box */
+  .ram-box {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid var(--ram-dim);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .ram-box .box-title { color: var(--ram); margin-bottom: 16px; }
+
+  .runtime-container {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .runtime-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .runtime-regions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+  }
+
+  .region {
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .region::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .region.active::before { opacity: 1; }
+
+  .region-stack { background: rgba(34,211,238,0.05); }
+  .region-stack.active { border-color: var(--stack); box-shadow: 0 0 16px rgba(34,211,238,0.25); }
+  .region-stack::before { background: rgba(34,211,238,0.04); }
+
+  .region-heap { background: rgba(192,132,252,0.05); }
+  .region-heap.active { border-color: var(--heap); box-shadow: 0 0 16px rgba(192,132,252,0.25); }
+  .region-heap::before { background: rgba(192,132,252,0.04); }
+
+  .region-code { background: rgba(245,158,11,0.05); }
+  .region-code.active { border-color: var(--code); box-shadow: 0 0 16px rgba(245,158,11,0.25); }
+  .region-code::before { background: rgba(245,158,11,0.04); }
+
+  .region-sched { background: rgba(0,188,212,0.05); }
+  .region-sched.active { border-color: var(--sched); box-shadow: 0 0 16px rgba(0,188,212,0.25); }
+  .region-sched::before { background: rgba(0,188,212,0.04); }
+
+  .region-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .region-stack .region-name { color: var(--stack); }
+  .region-heap .region-name { color: var(--heap); }
+  .region-code .region-name { color: var(--code); }
+  .region-sched .region-name { color: var(--sched); }
+
+  .region-items { display: flex; flex-direction: column; gap: 4px; min-height: 80px; }
+
+  .mem-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: all 0.4s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mem-item.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .stack-item { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.2); color: var(--stack); }
+  .heap-item { background: rgba(192,132,252,0.1); border-color: rgba(192,132,252,0.2); color: var(--heap); }
+  .code-item { background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.2); color: var(--code); }
+  .sched-item { background: rgba(0,188,212,0.1); border-color: rgba(0,188,212,0.2); color: var(--sched); }
+
+  @keyframes pulse-item {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.8); }
+  }
+
+  /* Flow steps */
+  .flow-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .flow-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .step:hover { border-color: var(--accent); }
+  .step.active-step {
+    border-color: var(--accent);
+    background: rgba(0,229,160,0.06);
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 24px;
+    padding-top: 1px;
+  }
+  .step-content { flex: 1; }
+  .step-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+  .step-desc {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .step-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+    margin-top: 4px;
+    display: inline-block;
+  }
+  .tag-cpu { background: rgba(255,107,53,0.15); color: var(--cpu); border: 1px solid rgba(255,107,53,0.3); }
+  .tag-stack { background: rgba(34,211,238,0.15); color: var(--stack); border: 1px solid rgba(34,211,238,0.3); }
+  .tag-heap { background: rgba(192,132,252,0.15); color: var(--heap); border: 1px solid rgba(192,132,252,0.3); }
+  .tag-code { background: rgba(245,158,11,0.15); color: var(--code); border: 1px solid rgba(245,158,11,0.3); }
+  .tag-sched { background: rgba(0,188,212,0.15); color: var(--sched); border: 1px solid rgba(0,188,212,0.3); }
+  .tag-gc { background: rgba(52,211,153,0.15); color: var(--gc); border: 1px solid rgba(52,211,153,0.3); }
+
+  /* Code panel */
+  .code-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .code-panel .flow-title { margin-bottom: 12px; }
+  .code-block {
+    background: #060910;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .code-line { display: block; transition: all 0.3s; border-radius: 3px; padding: 1px 4px; }
+  .code-line.hl { background: rgba(0,229,160,0.12); color: var(--accent); }
+  .kw { color: #c792ea; }
+  .fn { color: #82aaff; }
+  .str { color: #c3e88d; }
+  .num { color: #f78c6c; }
+  .cm { color: #546e7a; }
+  .tp { color: var(--stack); }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .ctrl-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.primary {
+    background: var(--accent);
+    color: #080c14;
+    border-color: var(--accent);
+  }
+  .ctrl-btn.primary:hover { filter: brightness(1.1); }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Explanation box */
+  .explanation {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .explanation h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .explanation p {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .explanation p strong { color: var(--text); }
+  .explanation p code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.76rem;
+    background: rgba(0,229,160,0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  /* Progress indicator */
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  @media (max-width: 768px) {
+    .arch { grid-template-columns: 1fr; }
+    .cpu-box { grid-column: 1; grid-row: auto; }
+    .ram-box { grid-column: 1; grid-row: auto; }
+    .runtime-regions { grid-template-columns: 1fr 1fr; }
+    .side-grid { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="main">
+
+  <div class="header">
+    <h1>Go Runtime — <span>Memória & Execução</span></h1>
+    <p>Visualize como seu código Go percorre CPU, Goroutine Stack, Heap e Scheduler</p>
+    <div class="go-badge">AOT COMPILED · GOROUTINES · GC CONCORRENTE · SEM JIT</div>
+  </div>
+
+  <!-- Scenario Selector -->
+  <div class="scenarios">
+    <button class="scenario-btn active" onclick="loadScenario(0)">x := 42</button>
+    <button class="scenario-btn" onclick="loadScenario(1)">func soma(a, b)</button>
+    <button class="scenario-btn" onclick="loadScenario(2)">User{} struct</button>
+    <button class="scenario-btn" onclick="loadScenario(3)">go func() goroutine</button>
+    <button class="scenario-btn" onclick="loadScenario(4)">Channels</button>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-bar">
+    <div class="progress-fill" id="progress" style="width:0%"></div>
+  </div>
+
+  <!-- Architecture Visualization -->
+  <div class="arch">
+
+    <!-- CPU -->
+    <div class="cpu-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        CPU
+      </div>
+      <div class="cpu-layer" id="cpu-reg">
+        <div class="layer-name" style="color:var(--cpu)">Registradores</div>
+        <div class="layer-info">~bytes · ~0.3ns</div>
+        <div id="cpu-reg-val" style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent);margin-top:6px;min-height:16px"></div>
+      </div>
+      <div class="cpu-layer" id="cpu-l1">
+        <div class="layer-name">Cache L1</div>
+        <div class="layer-info">~64 KB · ~1ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l2">
+        <div class="layer-name">Cache L2</div>
+        <div class="layer-info">~256 KB · ~4ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l3">
+        <div class="layer-name">Cache L3</div>
+        <div class="layer-info">~8 MB · ~10ns</div>
+      </div>
+      <div style="margin-top:auto;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--text-dim);border-top:1px solid var(--border);padding-top:10px;line-height:1.6">
+        BUS → RAM ~100ns
+      </div>
+    </div>
+
+    <!-- RAM / Go Runtime -->
+    <div class="ram-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        RAM — Processo Go
+      </div>
+
+      <div class="runtime-container">
+        <div class="runtime-title">
+          ⬡ Go Runtime
+        </div>
+        <div class="runtime-regions">
+
+          <div class="region region-stack" id="reg-stack">
+            <div class="region-name">Goroutine Stack</div>
+            <div class="region-items" id="stack-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>
+            </div>
+          </div>
+
+          <div class="region region-heap" id="reg-heap">
+            <div class="region-name">Heap</div>
+            <div class="region-items" id="heap-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>
+            </div>
+          </div>
+
+          <div class="region region-code" id="reg-code">
+            <div class="region-name">Text (código)</div>
+            <div class="region-items" id="code-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">binário compilado...</div>
+            </div>
+          </div>
+
+          <div class="region region-sched" id="reg-sched">
+            <div class="region-name">Scheduler (GMP)</div>
+            <div class="region-items" id="sched-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando goroutines...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code + Steps side by side -->
+  <div class="side-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+
+    <div class="code-panel">
+      <div class="flow-title">// código go</div>
+      <div class="code-block" id="code-display">
+        <span class="code-line cm">// selecione um cenário acima</span>
+        <span class="code-line cm">// e pressione Executar</span>
+      </div>
+    </div>
+
+    <div class="flow-panel">
+      <div class="flow-title">fluxo de execução</div>
+      <div class="steps-list" id="steps-list"></div>
+    </div>
+
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="runNext()" id="btn-run">▶ Executar passo a passo</button>
+    <button class="ctrl-btn" onclick="runAll()">⚡ Executar tudo</button>
+    <button class="ctrl-btn" onclick="resetAll()">↺ Resetar</button>
+  </div>
+
+  <!-- Explanation -->
+  <div class="explanation" id="explanation-box">
+    <h3>📌 Como usar</h3>
+    <p>Escolha um <strong>cenário</strong> no topo, depois clique em <strong>Executar passo a passo</strong> para ver como cada linha de código é processada pelo Go Runtime — o que vai para a Goroutine Stack, o que vai para a Heap, como o Scheduler (GMP) gerencia as goroutines e como a CPU executa código <strong>já compilado nativamente</strong> (sem JIT).</p>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cpu)"></div>CPU / Execução</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--stack)"></div>Goroutine Stack</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--heap)"></div>Heap (objetos, ponteiros)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--code)"></div>Text / Código nativo</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--sched)"></div>Scheduler GMP</div>
+  </div>
+
+</div>
+
+<script>
+const scenarios = [
+  {
+    name: "x := 42",
+    code: [
+      { text: `<span class="kw">package</span> main`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">import</span> <span class="str">"fmt"</span>`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    x := <span class="num">42</span>           <span class="cm">// int na stack</span>`, hl: false },
+      { text: `    y := x * <span class="num">2</span>        <span class="cm">// operação</span>`, hl: false },
+      { text: `    <span class="fn">fmt</span>.Println(y)    <span class="cm">// saída</span>`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "go build — compilação AOT",
+        desc: "Diferente da JVM, Go compila TUDO para código nativo ANTES da execução. O compilador (gc) gera um binário estático com o runtime embutido.",
+        tag: "code",
+        codeIdx: 0,
+        stack: [],
+        heap: [], code: ["main.main()", "fmt.Println()", "runtime.main()"], sched: [],
+        cpu: "l2", cpuVal: "load binary",
+        explain: "<strong>Go não tem JIT.</strong> O compilador <code>gc</code> compila para código de máquina nativo (x86/ARM) em tempo de build. O binário final inclui o runtime inteiro — scheduler, garbage collector, stack manager — tudo linkado estaticamente. Isso garante startup instantâneo e performance previsível.",
+        regions: ["code"]
+      },
+      {
+        title: "Runtime inicia — Scheduler GMP ativado",
+        desc: "Antes de main(), o runtime cria o Scheduler com o modelo GMP: G (goroutines), M (OS threads), P (processadores lógicos). GOMAXPROCS define quantos P existem.",
+        tag: "sched",
+        codeIdx: 4,
+        stack: ["Goroutine G1 (main)"],
+        heap: [], code: ["main.main()", "fmt.Println()", "runtime.main()"],
+        sched: ["P0 ← M0 ← G1", "GOMAXPROCS = N cores"],
+        cpu: "l1", cpuVal: "sched init",
+        explain: "O <strong>modelo GMP</strong> é o coração do Go: <strong>G</strong> = goroutine (unidade de trabalho leve, ~2-8 KB), <strong>M</strong> = OS thread real (cara, ~1-8 MB), <strong>P</strong> = processador lógico (contexto de execução). O Scheduler multiplexa milhares de G's sobre poucos M's via P's. Cada P tem uma fila local de G's para executar.",
+        regions: ["sched"]
+      },
+      {
+        title: "main() — goroutine G1 inicia",
+        desc: "A goroutine principal (G1) recebe uma stack inicial de 2-8 KB. Diferente da JVM (stack fixa ~1 MB por thread), Go usa stacks que crescem dinamicamente.",
+        tag: "stack",
+        codeIdx: 4,
+        stack: ["Goroutine G1 stack (2 KB)", "Frame: main()"],
+        heap: [], code: ["main.main()", "fmt.Println()"],
+        sched: ["P0 → executando G1"],
+        cpu: "l1", cpuVal: "init frame",
+        explain: "Cada goroutine começa com uma <strong>stack minúscula de 2-8 KB</strong> (vs ~1 MB de uma OS thread). Quando a stack não é suficiente, o runtime faz <strong>stack copying</strong> — aloca uma stack maior (2x), copia tudo, e atualiza ponteiros. Por isso Go suporta milhões de goroutines simultâneas.",
+        regions: ["stack", "sched"]
+      },
+      {
+        title: "x := 42",
+        desc: "int em Go é um tipo valor. O valor 42 é armazenado diretamente no frame de main() na stack da goroutine — sem heap.",
+        tag: "stack",
+        codeIdx: 5,
+        stack: ["Goroutine G1 stack", "Frame: main()", "  x: int = 42"],
+        heap: [], code: ["main.main()", "fmt.Println()"],
+        sched: ["P0 → executando G1"],
+        cpu: "reg", cpuVal: "42",
+        explain: "Go faz <strong>escape analysis</strong> em tempo de compilação. O compilador analisa se uma variável 'escapa' do escopo da função. Se não escapa (como x aqui), fica na stack. Se escapa (ex: retornar &x), vai para a heap. Isso é decidido em <em>compile time</em>, não em runtime.",
+        regions: ["stack"]
+      },
+      {
+        title: "y := x * 2",
+        desc: "A CPU carrega x dos registradores, multiplica por 2. O resultado (84) vai para a stack como y. Tudo código nativo — sem interpretador.",
+        tag: "cpu",
+        codeIdx: 6,
+        stack: ["Goroutine G1 stack", "Frame: main()", "  x: int = 42", "  y: int = 84"],
+        heap: [], code: ["main.main()", "fmt.Println()"],
+        sched: ["P0 → executando G1"],
+        cpu: "reg", cpuVal: "x=42 → 84",
+        explain: "A operação <code>x * 2</code> é uma instrução <code>IMUL</code> nativa. Como Go já compilou para código de máquina, <strong>não há overhead de interpretação</strong>. A performance é equivalente a C desde a primeira execução — não precisa 'aquecer' como o JIT da JVM.",
+        regions: ["stack"]
+      },
+      {
+        title: "fmt.Println(y) — execução finaliza",
+        desc: "Println é chamado. Após retorno, o frame de main() é removido. A goroutine G1 termina e o processo encerra.",
+        tag: "stack",
+        codeIdx: 7,
+        stack: ["← goroutine G1 encerrada"],
+        heap: [], code: ["main.main()", "fmt.Println()"],
+        sched: ["P0 → idle", "processo encerra"],
+        cpu: "l1", cpuVal: "output: 84",
+        explain: "Quando main() retorna, o <strong>runtime encerra o processo inteiro</strong> — inclusive qualquer goroutine que ainda esteja rodando. Diferente da JVM que espera threads daemon, Go é agressivo: main() morreu, tudo morre. A stack da G1 é liberada automaticamente.",
+        regions: ["stack", "sched"]
+      }
+    ]
+  },
+  {
+    name: "func soma(a, b)",
+    code: [
+      { text: `<span class="kw">package</span> main`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">import</span> <span class="str">"fmt"</span>`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">soma</span>(a, b <span class="tp">int</span>) <span class="tp">int</span> {`, hl: false },
+      { text: `    resultado := a + b`, hl: false },
+      { text: `    <span class="kw">return</span> resultado`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    r := <span class="fn">soma</span>(<span class="num">3</span>, <span class="num">5</span>)`, hl: false },
+      { text: `    <span class="fn">fmt</span>.Println(r)`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "main() entra na stack da goroutine",
+        desc: "Runtime cria a goroutine principal G1 e empilha o frame de main(). Código já é nativo — compilado AOT.",
+        tag: "stack", codeIdx: 9,
+        stack: ["G1 stack", "Frame: main()"],
+        heap: [], code: ["main.main()", "main.soma()"], sched: ["P0 → G1"],
+        cpu: "l1", cpuVal: "load main",
+        explain: "Em Go, <strong>todas as funções são compiladas para código nativo</strong> antes da execução. O segmento Text da memória contém o código de main() e soma() já como instruções de máquina. O runtime apenas configura a stack e começa a executar.",
+        regions: ["stack", "code"]
+      },
+      {
+        title: "soma(3, 5) é chamada",
+        desc: "Um novo frame é empilhado para soma(). Em Go, argumentos são passados via stack (ABI antiga) ou registradores (ABI nova, Go 1.17+).",
+        tag: "stack", codeIdx: 4,
+        stack: ["G1 stack", "Frame: soma()", "  a: int = 3", "  b: int = 5", "Frame: main()"],
+        heap: [], code: ["main.main()", "main.soma()"], sched: ["P0 → G1"],
+        cpu: "reg", cpuVal: "a=3, b=5",
+        explain: "Desde Go 1.17, a <strong>register-based ABI</strong> passa argumentos via registradores da CPU em vez de empilhar na stack. Isso é ~5% mais rápido. Antes, Go usava um ABI baseado em stack que era mais simples mas mais lento que C. Go aloca argumentos int sempre por valor — cópia direta.",
+        regions: ["stack"]
+      },
+      {
+        title: "resultado := a + b",
+        desc: "CPU soma a + b via registradores. resultado = 8 é armazenado no frame de soma(). Tudo na goroutine stack.",
+        tag: "cpu", codeIdx: 5,
+        stack: ["G1 stack", "Frame: soma()", "  a: int = 3", "  b: int = 5", "  resultado: int = 8", "Frame: main()"],
+        heap: [], code: ["main.main()", "main.soma()"], sched: ["P0 → G1"],
+        cpu: "reg", cpuVal: "3 + 5 = 8",
+        explain: "A instrução <code>ADD</code> nativa é executada diretamente pela CPU. Como Go é <strong>compilado AOT</strong>, essa instrução está no binário desde o build. Não há bytecode, não há interpretador, não há JIT — a CPU executa diretamente o código de máquina.",
+        regions: ["stack"]
+      },
+      {
+        title: "return — frame de soma() destruído",
+        desc: "soma() retorna 8. Frame desempilhado. O valor retorna via registrador (ABI nova) para main().",
+        tag: "stack", codeIdx: 6,
+        stack: ["G1 stack", "Frame: main()", "  r: int = 8"],
+        heap: [], code: ["main.main()", "main.soma()"],
+        sched: ["P0 → G1"],
+        cpu: "l1", cpuVal: "r = 8",
+        explain: "O frame de soma() é <strong>destruído automaticamente</strong> — a stack pointer simplesmente volta. O valor de retorno é passado por registrador (Go 1.17+). Diferente da JVM, Go pode retornar <strong>múltiplos valores</strong>: <code>func div(a, b int) (int, error)</code> — isso é nativo da linguagem.",
+        regions: ["stack"]
+      },
+      {
+        title: "Inlining pelo compilador",
+        desc: "Na verdade, funções pequenas como soma() são inlined pelo compilador — o frame nem chega a ser criado em runtime.",
+        tag: "code", codeIdx: 10,
+        stack: ["G1 stack", "Frame: main() (inlined)", "  r: int = 8"],
+        heap: [], code: ["soma() → inlined em main()", "ADD direto no caller"],
+        sched: ["P0 → G1"],
+        cpu: "reg", cpuVal: "inlined",
+        explain: "O compilador Go faz <strong>inlining agressivo</strong> de funções pequenas (leaf functions com custo ≤80 unidades). soma() é tão simples que o compilador copia o corpo dela direto em main() — eliminando overhead de chamada. Use <code>go build -gcflags='-m'</code> para ver quais funções são inlined.",
+        regions: ["code", "stack"]
+      }
+    ]
+  },
+  {
+    name: "User{} struct",
+    code: [
+      { text: `<span class="kw">package</span> main`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">import</span> <span class="str">"fmt"</span>`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">type</span> <span class="tp">User</span> <span class="kw">struct</span> {`, hl: false },
+      { text: `    Nome  <span class="tp">string</span>`, hl: false },
+      { text: `    Idade <span class="tp">int</span>`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    user := <span class="tp">User</span>{<span class="str">"Ana"</span>, <span class="num">30</span>}  <span class="cm">// valor</span>`, hl: false },
+      { text: `    p := &user              <span class="cm">// ponteiro</span>`, hl: false },
+      { text: `    <span class="fn">fmt</span>.Println(p.Nome)`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "Struct User — tipo valor em Go",
+        desc: "Diferente de Java/Kotlin onde classes são sempre referências, struct em Go é um tipo VALOR. Pode viver na stack sem alocação na heap.",
+        tag: "code", codeIdx: 4,
+        stack: [], heap: [],
+        code: ["type User struct{}", "main.main()"],
+        sched: ["P0 → G1"],
+        cpu: "l2", cpuVal: "type info",
+        explain: "Em Go, <strong>struct é valor, não referência</strong>. Isso é fundamentalmente diferente da JVM onde todo objeto vive na heap. Um User{} pode viver inteiramente na stack — sem GC, sem alocação, sem overhead. O compilador decide via <strong>escape analysis</strong> onde colocar.",
+        regions: ["code"]
+      },
+      {
+        title: "main() — goroutine G1 inicia",
+        desc: "Frame de main() é criado. A variável user será alocada como parte do frame — diretamente na stack.",
+        tag: "stack", codeIdx: 9,
+        stack: ["G1 stack", "Frame: main()", "  user → (zero value)"],
+        heap: [],
+        code: ["type User struct{}", "main.main()"],
+        sched: ["P0 → G1"],
+        cpu: "l1", cpuVal: "init frame",
+        explain: "Em Go, variáveis são inicializadas com <strong>zero value</strong> automaticamente. Para User, isso seria {Nome: \"\", Idade: 0}. Diferente de linguagens com null — Go não tem null para structs (só para ponteiros, interfaces, slices, maps e channels).",
+        regions: ["stack"]
+      },
+      {
+        title: "user := User{\"Ana\", 30} — struct na stack!",
+        desc: "Escape analysis determina: user NÃO escapa de main(). Struct é alocada diretamente na stack. Nenhuma alocação na heap. Zero GC pressure.",
+        tag: "stack", codeIdx: 10,
+        stack: ["G1 stack", "Frame: main()", "  user.Nome = \"Ana\"", "  user.Idade = 30"],
+        heap: ["string data: \"Ana\""],
+        code: ["type User struct{}", "main.main()"],
+        sched: ["P0 → G1"],
+        cpu: "reg", cpuVal: "User{Ana, 30}",
+        explain: "<strong>Struct na stack!</strong> O struct User{} inteiro vive na stack como valor contíguo. O campo Idade (int) fica inline. O campo Nome (string) é um <em>string header</em> (ponteiro + len) na stack, mas os bytes \"Ana\" ficam num segmento de dados estáticos (são constante em tempo de compilação). Nenhuma alocação dinâmica na heap foi necessária.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "p := &user — ponteiro pode causar escape!",
+        desc: "Pegar o endereço de user com &. O compilador analisa se p escapa. Se p só é usado localmente, user continua na stack mesmo assim.",
+        tag: "stack", codeIdx: 11,
+        stack: ["G1 stack", "Frame: main()", "  user.Nome = \"Ana\"", "  user.Idade = 30", "  p → &user (stack)"],
+        heap: ["string data: \"Ana\""],
+        code: ["escape analysis: p local", "user NÃO escapa → stack"],
+        sched: ["P0 → G1"],
+        cpu: "reg", cpuVal: "&user",
+        explain: "O <strong>escape analysis</strong> é inteligente: pegar &user NÃO causa escape automaticamente. Se p é usado apenas dentro de main(), tudo continua na stack. O compilador rastreia todos os caminhos que p pode seguir. Use <code>go build -gcflags='-m'</code> para ver: <code>user does not escape</code>.",
+        regions: ["stack", "code"]
+      },
+      {
+        title: "Cenário alternativo — se user ESCAPASSE",
+        desc: "Se user fosse passado para outra goroutine ou retornado como ponteiro, o compilador moveria user para a heap automaticamente.",
+        tag: "heap", codeIdx: 11,
+        stack: ["G1 stack", "Frame: main()", "  p → 0x7f3a (heap)"],
+        heap: ["User @ 0x7f3a", "  Nome → \"Ana\"", "  Idade = 30", "← GC monitora"],
+        code: ["escape analysis:", "user ESCAPA → heap"],
+        sched: ["P0 → G1"],
+        cpu: "l1", cpuVal: "heap alloc",
+        explain: "Se fizéssemos <code>go func() { fmt.Println(p) }()</code>, o compilador detectaria que user escapa para outra goroutine. Aí sim, <strong>user vai para a heap</strong>. Isso é transparente — o código não muda, mas a alocação muda. O GC passa a monitorar. Essa decisão é 100% do compilador, não do programador.",
+        regions: ["heap", "code"]
+      },
+      {
+        title: "GC Concorrente — tri-color mark-sweep",
+        desc: "O GC do Go é concorrente e de baixa latência. Usa tri-color marking: branco (lixo), cinza (a verificar), preto (vivo). Roda junto com o programa.",
+        tag: "gc", codeIdx: 12,
+        stack: ["← frame destruído"],
+        heap: ["User @ 0x7f3a ← GC eligible", "GC tri-color sweep"],
+        code: ["runtime.GC()", "mark → sweep"],
+        sched: ["P0 → GC assist", "STW < 1ms"],
+        cpu: "l2", cpuVal: "GC cycle",
+        explain: "O GC do Go prioriza <strong>latência baixa</strong> sobre throughput máximo. Usa <strong>tri-color concurrent mark-sweep</strong>: marca objetos como branco/cinza/preto enquanto o programa continua rodando. O tempo de pausa (STW — Stop The World) é tipicamente <strong>&lt; 1ms</strong>, mesmo com GBs de heap. Diferente do GC da JVM que pode pausar por centenas de milissegundos.",
+        regions: ["heap", "sched"]
+      }
+    ]
+  },
+  {
+    name: "go func() goroutine",
+    code: [
+      { text: `<span class="kw">package</span> main`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">import</span> (`, hl: false },
+      { text: `    <span class="str">"fmt"</span>`, hl: false },
+      { text: `    <span class="str">"sync"</span>`, hl: false },
+      { text: `)`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">worker</span>(id <span class="tp">int</span>, wg *<span class="tp">sync.WaitGroup</span>) {`, hl: false },
+      { text: `    <span class="kw">defer</span> wg.Done()`, hl: false },
+      { text: `    <span class="fn">fmt</span>.Println(<span class="str">"worker"</span>, id)`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    <span class="kw">var</span> wg <span class="tp">sync.WaitGroup</span>`, hl: false },
+      { text: `    <span class="kw">for</span> i := <span class="num">0</span>; i < <span class="num">3</span>; i++ {`, hl: false },
+      { text: `        wg.Add(<span class="num">1</span>)`, hl: false },
+      { text: `        <span class="kw">go</span> <span class="fn">worker</span>(i, &wg)`, hl: false },
+      { text: `    }`, hl: false },
+      { text: `    wg.Wait()`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "Scheduler GMP — a arquitetura",
+        desc: "Antes das goroutines, entenda o modelo GMP: G (goroutine), M (OS thread), P (processador lógico). P tem uma run queue local.",
+        tag: "sched", codeIdx: 12,
+        stack: ["G1 stack (main)", "Frame: main()"],
+        heap: [], code: ["main.main()", "main.worker()"],
+        sched: ["G1 (main) → P0 → M0", "P1 → M1 (idle)", "Global run queue: vazia"],
+        cpu: "l1", cpuVal: "sched init",
+        explain: "O <strong>Scheduler GMP</strong> é cooperativo e preemptivo (Go 1.14+). <strong>P</strong> (processador lógico) = GOMAXPROCS, geralmente = número de cores. Cada P tem uma <strong>fila local</strong> de goroutines. Se uma fila local esvazia, o P faz <strong>work stealing</strong> — rouba G's de outro P. M's (OS threads) são criadas sob demanda.",
+        regions: ["sched"]
+      },
+      {
+        title: "go worker(0, &wg) — goroutine G2 criada",
+        desc: "A keyword 'go' cria uma nova goroutine G2 com stack de ~2 KB. Ela é colocada na run queue local do P atual.",
+        tag: "sched", codeIdx: 16,
+        stack: ["G2 stack (2 KB)", "  worker(0, &wg)", "G1 stack (main)", "  Frame: main()"],
+        heap: ["sync.WaitGroup (shared)"], code: ["main.worker()"],
+        sched: ["P0: G1 (running), G2 (queued)", "custo: ~2-4 KB cada G"],
+        cpu: "l1", cpuVal: "spawn G2",
+        explain: "Criar uma goroutine custa <strong>~2-4 KB de memória e ~300ns</strong>. Comparação: criar uma OS thread custa ~1-8 MB e ~1ms+. É por isso que Go aguenta milhões de goroutines. A goroutine G2 é colocada na <strong>fila local do P0</strong> — quando G1 ceder a CPU, G2 será executada.",
+        regions: ["sched", "stack"]
+      },
+      {
+        title: "go worker(1) e go worker(2) — G3 e G4",
+        desc: "Mais duas goroutines são criadas. O Scheduler distribui entre os P's disponíveis. As goroutines podem rodar em paralelo real se houver múltiplos cores.",
+        tag: "sched", codeIdx: 16,
+        stack: ["G2: worker(0)", "G3: worker(1)", "G4: worker(2)", "G1: main()"],
+        heap: ["sync.WaitGroup (counter=3)"],
+        code: ["main.worker()"],
+        sched: ["P0: G1, G2 (local queue)", "P1: G3, G4 (work stealing)", "3 goroutines ativas"],
+        cpu: "reg", cpuVal: "3 goroutines",
+        explain: "O Scheduler usa <strong>work stealing</strong>: P1 está ocioso, então rouba G3 e G4 da fila de P0. Agora as goroutines podem rodar <strong>em paralelo real</strong> em cores diferentes. Concorrência (estrutura) vs Paralelismo (execução) — Go oferece os dois.",
+        regions: ["sched"]
+      },
+      {
+        title: "worker() executa — defer wg.Done()",
+        desc: "Cada goroutine executa worker(). defer registra wg.Done() para ser chamado quando a função retornar. Execução é preemptiva desde Go 1.14.",
+        tag: "stack", codeIdx: 8,
+        stack: ["G2: worker(0) executando", "  defer: wg.Done()", "G3: worker(1) executando", "G4: worker(2) executando"],
+        heap: ["sync.WaitGroup (counter=3)", "  ← goroutines decrementam"],
+        code: ["main.worker() × 3"],
+        sched: ["P0: G2 (running)", "P1: G3 (running)", "G4: queued", "G1: blocked (Wait)"],
+        cpu: "reg", cpuVal: "workers running",
+        explain: "<strong>defer</strong> é uma instrução LIFO: registra uma função para ser chamada quando a função atual retornar. É como try-finally em Java. O custo é mínimo (~35ns). A preempção assíncrona do Go 1.14+ significa que o runtime pode pausar uma goroutine em <strong>qualquer safe point</strong> — loops infinitos não travam mais o scheduler.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "wg.Wait() — G1 bloqueia, Scheduler continua",
+        desc: "main() chama wg.Wait(). G1 é 'parked' (suspensa) — NÃO bloqueia a OS thread M0. O Scheduler continua rodando G2, G3, G4.",
+        tag: "sched", codeIdx: 18,
+        stack: ["G2: executando", "G3: executando", "G4: executando", "G1: parked (Wait)"],
+        heap: ["sync.WaitGroup (counter→0)"],
+        code: ["main.worker()"],
+        sched: ["G1: parked (não consome M)", "M0 livre para outra G", "netpoller monitora I/O"],
+        cpu: "l1", cpuVal: "G1 parked",
+        explain: "Quando uma goroutine bloqueia (Wait, channel, I/O), ela é <strong>parked, não bloqueada na OS thread</strong>. A M (OS thread) é liberada para executar outras G's. Isso é a mágica: 100.000 goroutines fazendo I/O usam apenas ~10 OS threads. O <strong>netpoller</strong> usa epoll/kqueue para monitorar I/O de forma assíncrona.",
+        regions: ["sched"]
+      },
+      {
+        title: "Workers terminam — G1 acorda",
+        desc: "Todas as goroutines chamam wg.Done(). Counter chega a 0. G1 é acordada e colocada de volta na run queue.",
+        tag: "sched", codeIdx: 19,
+        stack: ["G1: main() retorna", "← G2, G3, G4 encerradas"],
+        heap: ["← stacks recicladas"],
+        code: ["done"],
+        sched: ["G1 → acordada → running", "G2,G3,G4 → stacks recicladas", "goroutine cache pool"],
+        cpu: "l1", cpuVal: "all done",
+        explain: "Quando as goroutines terminam, suas <strong>stacks são recicladas</strong> em um pool — não são destruídas. O runtime mantém um cache de stacks pré-alocadas para reutilizar. Isso reduz a pressão no alocador. G1 acorda quando o counter do WaitGroup chega a 0 e o programa termina normalmente.",
+        regions: ["sched", "stack"]
+      }
+    ]
+  },
+  {
+    name: "Channels",
+    code: [
+      { text: `<span class="kw">package</span> main`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">import</span> <span class="str">"fmt"</span>`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">produtor</span>(ch <span class="kw">chan</span>&lt;- <span class="tp">int</span>) {`, hl: false },
+      { text: `    ch &lt;- <span class="num">42</span>   <span class="cm">// envia</span>`, hl: false },
+      { text: `    <span class="fn">close</span>(ch)`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">func</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)  <span class="cm">// unbuffered</span>`, hl: false },
+      { text: `    <span class="kw">go</span> <span class="fn">produtor</span>(ch)`, hl: false },
+      { text: `    v := &lt;-ch         <span class="cm">// recebe</span>`, hl: false },
+      { text: `    <span class="fn">fmt</span>.Println(v)`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "make(chan int) — channel criado na Heap",
+        desc: "Channels são estruturas hchan alocadas na heap. Contém: buffer circular, mutex, filas de goroutines esperando (sendq/recvq).",
+        tag: "heap", codeIdx: 10,
+        stack: ["G1 stack", "Frame: main()", "  ch → 0xa100"],
+        heap: ["hchan @ 0xa100", "  buf: nil (unbuffered)", "  sendq: vazia", "  recvq: vazia", "  lock: mutex"],
+        code: ["runtime.makechan()"], sched: ["P0 → G1"],
+        cpu: "l1", cpuVal: "make chan",
+        explain: "Channel é uma struct <strong>hchan</strong> na heap. Para unbuffered channel, não há buffer interno — sender e receiver precisam se encontrar (<em>rendezvous</em>). O hchan contém: um <strong>mutex</strong> para sincronização, <strong>sendq</strong> (fila de goroutines esperando para enviar) e <strong>recvq</strong> (fila esperando para receber).",
+        regions: ["heap", "stack"]
+      },
+      {
+        title: "go produtor(ch) — G2 criada",
+        desc: "Nova goroutine G2 é criada para rodar produtor(). Ela recebe uma cópia do valor de ch (que é um ponteiro para hchan).",
+        tag: "sched", codeIdx: 11,
+        stack: ["G2: produtor(ch)", "G1: main()"],
+        heap: ["hchan @ 0xa100", "  buf: nil", "  sendq: vazia", "  recvq: vazia"],
+        code: ["main.produtor()"], sched: ["P0: G1 (running)", "P0 queue: G2"],
+        cpu: "l1", cpuVal: "spawn G2",
+        explain: "Channel em Go é um <strong>ponteiro por natureza</strong> — quando passamos ch para produtor(), ambas as goroutines apontam para o mesmo hchan na heap. Não é cópia do canal, é cópia do ponteiro. Isso permite comunicação segura entre goroutines: <em>'Don't communicate by sharing memory; share memory by communicating.'</em>",
+        regions: ["sched", "heap"]
+      },
+      {
+        title: "v := <-ch — G1 bloqueia esperando",
+        desc: "main() tenta receber do canal. Como ninguém enviou ainda, G1 é parked na recvq do channel. A OS thread é liberada.",
+        tag: "sched", codeIdx: 12,
+        stack: ["G2: produtor(ch)", "G1: parked (recvq)"],
+        heap: ["hchan @ 0xa100", "  recvq: [G1 esperando]", "  sendq: vazia"],
+        code: ["runtime.chanrecv()"], sched: ["G1: parked em ch.recvq", "P0 livre → executa G2"],
+        cpu: "l1", cpuVal: "G1 blocked",
+        explain: "Quando uma goroutine faz <code>&lt;-ch</code> em um canal vazio, ela é <strong>parked na recvq</strong> do hchan. A goroutine não consome CPU nem OS thread. O Scheduler salva o estado (registradores, stack pointer) na estrutura G e libera a M. É <strong>suspensão ultra-leve</strong>.",
+        regions: ["sched", "heap"]
+      },
+      {
+        title: "ch <- 42 — G2 envia, G1 acorda direto",
+        desc: "Produtor envia 42. Como G1 está esperando na recvq, o runtime faz CÓPIA DIRETA do valor para a stack de G1 — sem passar pelo buffer!",
+        tag: "heap", codeIdx: 5,
+        stack: ["G1: acordada!", "  v: int = 42 (copiado direto)", "G2: produtor()"],
+        heap: ["hchan @ 0xa100", "  → direct send!", "  recvq: vazia agora", "  42 copiado G2→G1"],
+        code: ["runtime.chansend()"],
+        sched: ["G2 copia 42 → stack de G1", "G1 acordada → run queue"],
+        cpu: "reg", cpuVal: "42 → G1",
+        explain: "<strong>Otimização de cópia direta!</strong> Quando há um receiver esperando, o runtime pula o buffer completamente. Ele copia o valor <strong>direto da stack de G2 para a stack de G1</strong> — zero alocação intermediária. Depois, G1 é movida da recvq para a run queue. Esse é o fast path do channel.",
+        regions: ["heap", "sched", "stack"]
+      },
+      {
+        title: "close(ch) — canal fechado",
+        desc: "Produtor fecha o canal. Qualquer goroutine na recvq seria acordada com zero value. Enviar para canal fechado causa panic.",
+        tag: "heap", codeIdx: 6,
+        stack: ["G1: v = 42", "G2: retornando"],
+        heap: ["hchan @ 0xa100", "  closed = true", "  ← futuras leituras: 0, false"],
+        code: ["runtime.closechan()"],
+        sched: ["G2 → retorna", "G1 → continua"],
+        cpu: "l1", cpuVal: "chan closed",
+        explain: "<strong>close(ch)</strong> marca o canal como fechado. Leituras futuras retornam zero value + false: <code>v, ok := &lt;-ch</code> → <code>0, false</code>. Enviar para canal fechado causa <strong>panic</strong>. Fechar canal é a forma idiomática de sinalizar 'não há mais dados' — usado extensivamente com <code>range</code> sobre channels.",
+        regions: ["heap"]
+      },
+      {
+        title: "fmt.Println(v) — programa termina",
+        desc: "main() imprime 42 e retorna. Todas as goroutines são terminadas. Channel é coletado pelo GC.",
+        tag: "stack", codeIdx: 13,
+        stack: ["← G1 encerrada", "← G2 encerrada"],
+        heap: ["hchan @ 0xa100 ← GC eligible"],
+        code: ["done"],
+        sched: ["programa encerra", "runtime.exit()"],
+        cpu: "l1", cpuVal: "output: 42",
+        explain: "O channel <strong>hchan</strong> agora não tem referências — será coletado pelo GC. Channels são uma das primitivas de concorrência mais poderosas do Go. Padrões comuns: fan-out/fan-in, pipeline, timeout com <code>select</code>, semáforo, e pub/sub. Tudo sem locks explícitos.",
+        regions: ["stack", "heap", "sched"]
+      }
+    ]
+  }
+];
+
+let currentScenario = 0;
+let currentStep = -1;
+let autoRunTimer = null;
+
+function loadScenario(idx) {
+  currentScenario = idx;
+  currentStep = -1;
+  document.querySelectorAll('.scenario-btn').forEach((b, i) => {
+    b.classList.toggle('active', i === idx);
+  });
+  renderCode();
+  renderSteps();
+  resetRegions();
+  updateProgress();
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Pronto</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para começar a simulação do cenário: <strong>${scenarios[idx].name}</strong></p>
+  `;
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+}
+
+function renderCode() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('code-display');
+  div.innerHTML = s.code.map((l, i) =>
+    `<span class="code-line" id="cl-${i}">${l.text || '&nbsp;'}</span>`
+  ).join('\n');
+}
+
+function renderSteps() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('steps-list');
+  div.innerHTML = s.steps.map((step, i) => `
+    <div class="step" id="step-${i}" onclick="jumpToStep(${i})">
+      <div class="step-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="step-content">
+        <div class="step-title">${step.title}</div>
+        <div class="step-desc" style="display:none">${step.desc}</div>
+        <span class="step-tag tag-${step.tag}" style="display:none">${step.tag.toUpperCase()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function resetRegions() {
+  const defaults = {stack:'aguardando execução...', heap:'aguardando execução...', code:'binário compilado...', sched:'aguardando goroutines...'};
+  ['stack', 'heap', 'code', 'sched'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">${defaults[r]}</div>`;
+    document.getElementById(`reg-${r}`).classList.remove('active');
+  });
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+}
+
+function updateProgress() {
+  const s = scenarios[currentScenario];
+  const pct = currentStep < 0 ? 0 : ((currentStep + 1) / s.steps.length) * 100;
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function applyStep(idx) {
+  const s = scenarios[currentScenario];
+  const step = s.steps[idx];
+
+  // highlight code
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+  const cl = document.getElementById(`cl-${step.codeIdx}`);
+  if (cl) cl.classList.add('hl');
+
+  // update steps UI
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.toggle('active-step', i === idx);
+    const desc = el.querySelector('.step-desc');
+    const tag = el.querySelector('.step-tag');
+    if (i === idx) {
+      desc.style.display = 'block';
+      tag.style.display = 'inline-block';
+    } else {
+      desc.style.display = 'none';
+      tag.style.display = 'none';
+    }
+  });
+
+  // update regions
+  ['stack', 'heap', 'code', 'sched'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const items = step[r];
+    const region = document.getElementById(`reg-${r}`);
+    if (items && items.length > 0) {
+      el.innerHTML = items.map(it =>
+        `<div class="mem-item ${r}-item visible">${it}</div>`
+      ).join('');
+      region.classList.add('active');
+    } else {
+      el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">vazio</div>`;
+      region.classList.remove('active');
+    }
+  });
+
+  // CPU
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  const cpuMap = { reg: 'cpu-reg', l1: 'cpu-l1', l2: 'cpu-l2', l3: 'cpu-l3' };
+  const cpuEl = document.getElementById(cpuMap[step.cpu]);
+  if (cpuEl) cpuEl.classList.add('active-layer');
+  document.getElementById('cpu-reg-val').textContent = step.cpuVal || '';
+
+  // Explanation
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>💡 passo ${idx + 1} — ${step.title}</h3>
+    <p>${step.explain}</p>
+  `;
+
+  updateProgress();
+}
+
+function runNext() {
+  const s = scenarios[currentScenario];
+  currentStep++;
+  if (currentStep >= s.steps.length) {
+    currentStep = s.steps.length - 1;
+    document.getElementById('explanation-box').innerHTML = `
+      <h3>✅ Simulação concluída</h3>
+      <p>Todos os passos foram executados. Clique em <strong>Resetar</strong> para recomeçar ou escolha outro cenário.</p>
+    `;
+    return;
+  }
+  applyStep(currentStep);
+}
+
+function runAll() {
+  resetAll();
+  const s = scenarios[currentScenario];
+  let i = 0;
+  function next() {
+    if (i >= s.steps.length) return;
+    currentStep = i;
+    applyStep(i);
+    i++;
+    autoRunTimer = setTimeout(next, 1500);
+  }
+  next();
+}
+
+function resetAll() {
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  currentStep = -1;
+  resetRegions();
+  renderCode();
+  renderSteps();
+  updateProgress();
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Resetado</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para iniciar a simulação.</p>
+  `;
+}
+
+function jumpToStep(idx) {
+  currentStep = idx;
+  applyStep(idx);
+}
+
+// Init
+loadScenario(0);
+</script>
+</body>
+</html>

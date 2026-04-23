@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JVM — Memória & Execução</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #0f1628;
+    --bg3: #151d35;
+    --border: #1e2d50;
+    --cpu: #ff6b35;
+    --cpu-dim: #7a3318;
+    --jit: #f7c59f;
+    --jit-dim: #7a6040;
+    --stack: #4ecdc4;
+    --stack-dim: #1e5c58;
+    --heap: #a78bfa;
+    --heap-dim: #4a3878;
+    --meta: #34d399;
+    --meta-dim: #1a6b4a;
+    --ram: #60a5fa;
+    --ram-dim: #1e3a6e;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --accent: #fbbf24;
+    --glow: 0 0 20px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    opacity: 0.4;
+  }
+
+  .main {
+    position: relative; z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  /* Scenario selector */
+  .scenarios {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .scenario-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    transition: all 0.2s;
+  }
+  .scenario-btn:hover { border-color: var(--accent); color: var(--text); }
+  .scenario-btn.active {
+    background: var(--accent);
+    color: #0a0e1a;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Architecture grid */
+  .arch {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: auto auto;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  /* CPU Box */
+  .cpu-box {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid var(--cpu-dim);
+    border-radius: 12px;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .box-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .box-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .cpu-box .box-title { color: var(--cpu); }
+
+  .cpu-layer {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    transition: all 0.3s;
+  }
+  .cpu-layer .layer-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .cpu-layer .layer-info {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+  .cpu-layer.active-layer {
+    border-color: var(--cpu);
+    box-shadow: 0 0 12px rgba(255,107,53,0.3);
+  }
+  .cpu-layer.active-layer .layer-name { color: var(--cpu); }
+
+  /* RAM Box */
+  .ram-box {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid var(--ram-dim);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .ram-box .box-title { color: var(--ram); margin-bottom: 16px; }
+
+  .jvm-container {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .jvm-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .jvm-regions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+  }
+
+  .region {
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .region::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .region.active::before { opacity: 1; }
+
+  .region-stack { background: rgba(78,205,196,0.05); }
+  .region-stack.active { border-color: var(--stack); box-shadow: 0 0 16px rgba(78,205,196,0.25); }
+  .region-stack::before { background: rgba(78,205,196,0.04); }
+
+  .region-heap { background: rgba(167,139,250,0.05); }
+  .region-heap.active { border-color: var(--heap); box-shadow: 0 0 16px rgba(167,139,250,0.25); }
+  .region-heap::before { background: rgba(167,139,250,0.04); }
+
+  .region-jit { background: rgba(247,197,159,0.05); }
+  .region-jit.active { border-color: var(--jit); box-shadow: 0 0 16px rgba(247,197,159,0.25); }
+  .region-jit::before { background: rgba(247,197,159,0.04); }
+
+  .region-meta { background: rgba(52,211,153,0.05); }
+  .region-meta.active { border-color: var(--meta); box-shadow: 0 0 16px rgba(52,211,153,0.25); }
+  .region-meta::before { background: rgba(52,211,153,0.04); }
+
+  .region-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .region-stack .region-name { color: var(--stack); }
+  .region-heap .region-name { color: var(--heap); }
+  .region-jit .region-name { color: var(--jit); }
+  .region-meta .region-name { color: var(--meta); }
+
+  .region-items { display: flex; flex-direction: column; gap: 4px; min-height: 80px; }
+
+  .mem-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: all 0.4s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mem-item.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .mem-item.highlight {
+    animation: pulse-item 1s ease-in-out;
+  }
+
+  .stack-item { background: rgba(78,205,196,0.1); border-color: rgba(78,205,196,0.2); color: var(--stack); }
+  .heap-item { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.2); color: var(--heap); }
+  .jit-item { background: rgba(247,197,159,0.1); border-color: rgba(247,197,159,0.2); color: var(--jit); }
+  .meta-item { background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.2); color: var(--meta); }
+
+  @keyframes pulse-item {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.8); }
+  }
+
+  /* Arrows */
+  .arrow-area {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 12px 0;
+    position: relative;
+  }
+
+  /* Flow steps */
+  .flow-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .flow-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .step:hover { border-color: var(--accent); }
+  .step.active-step {
+    border-color: var(--accent);
+    background: rgba(251,191,36,0.06);
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 24px;
+    padding-top: 1px;
+  }
+  .step-content { flex: 1; }
+  .step-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+  .step-desc {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .step-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+    margin-top: 4px;
+    display: inline-block;
+  }
+  .tag-cpu { background: rgba(255,107,53,0.15); color: var(--cpu); border: 1px solid rgba(255,107,53,0.3); }
+  .tag-stack { background: rgba(78,205,196,0.15); color: var(--stack); border: 1px solid rgba(78,205,196,0.3); }
+  .tag-heap { background: rgba(167,139,250,0.15); color: var(--heap); border: 1px solid rgba(167,139,250,0.3); }
+  .tag-jit { background: rgba(247,197,159,0.15); color: var(--jit); border: 1px solid rgba(247,197,159,0.3); }
+  .tag-meta { background: rgba(52,211,153,0.15); color: var(--meta); border: 1px solid rgba(52,211,153,0.3); }
+
+  /* Code panel */
+  .code-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .code-panel .flow-title { margin-bottom: 12px; }
+  .code-block {
+    background: #060910;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .code-line { display: block; transition: all 0.3s; border-radius: 3px; padding: 1px 4px; }
+  .code-line.hl { background: rgba(251,191,36,0.12); color: var(--accent); }
+  .kw { color: #c792ea; }
+  .fn { color: #82aaff; }
+  .str { color: #c3e88d; }
+  .num { color: #f78c6c; }
+  .cm { color: #546e7a; }
+  .tp { color: var(--stack); }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .ctrl-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.primary {
+    background: var(--accent);
+    color: #0a0e1a;
+    border-color: var(--accent);
+  }
+  .ctrl-btn.primary:hover { filter: brightness(1.1); }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Explanation box */
+  .explanation {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .explanation h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .explanation p {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .explanation p strong { color: var(--text); }
+
+  /* Connector lines */
+  .connectors {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 8px 0;
+    position: relative;
+  }
+  .conn-line {
+    height: 2px;
+    flex: 1;
+    background: var(--border);
+    transition: background 0.3s;
+  }
+  .conn-line.active { background: var(--accent); animation: flow-line 1s infinite; }
+  @keyframes flow-line {
+    0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; }
+  }
+  .conn-arrow {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    transition: color 0.3s;
+  }
+  .conn-arrow.active { color: var(--accent); }
+
+  /* Progress indicator */
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  @media (max-width: 768px) {
+    .arch { grid-template-columns: 1fr; }
+    .cpu-box { grid-column: 1; grid-row: auto; }
+    .ram-box { grid-column: 1; grid-row: auto; }
+    .jvm-regions { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="main">
+
+  <div class="header">
+    <h1>JVM — <span>Memória & Execução</span></h1>
+    <p>Visualize como seu código Kotlin percorre CPU, Stack, Heap e JIT</p>
+  </div>
+
+  <!-- Scenario Selector -->
+  <div class="scenarios">
+    <button class="scenario-btn active" onclick="loadScenario(0)">val x = 42</button>
+    <button class="scenario-btn" onclick="loadScenario(1)">fun soma(a, b)</button>
+    <button class="scenario-btn" onclick="loadScenario(2)">val obj = User()</button>
+    <button class="scenario-btn" onclick="loadScenario(3)">Recursão</button>
+    <button class="scenario-btn" onclick="loadScenario(4)">JIT aquecimento</button>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-bar">
+    <div class="progress-fill" id="progress" style="width:0%"></div>
+  </div>
+
+  <!-- Architecture Visualization -->
+  <div class="arch">
+
+    <!-- CPU -->
+    <div class="cpu-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        CPU
+      </div>
+      <div class="cpu-layer" id="cpu-reg">
+        <div class="layer-name" style="color:var(--cpu)">Registradores</div>
+        <div class="layer-info">~bytes · ~0.3ns</div>
+        <div id="cpu-reg-val" style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent);margin-top:6px;min-height:16px"></div>
+      </div>
+      <div class="cpu-layer" id="cpu-l1">
+        <div class="layer-name">Cache L1</div>
+        <div class="layer-info">~64 KB · ~1ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l2">
+        <div class="layer-name">Cache L2</div>
+        <div class="layer-info">~256 KB · ~4ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l3">
+        <div class="layer-name">Cache L3</div>
+        <div class="layer-info">~8 MB · ~10ns</div>
+      </div>
+      <div style="margin-top:auto;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--text-dim);border-top:1px solid var(--border);padding-top:10px;line-height:1.6">
+        BUS → RAM ~100ns
+      </div>
+    </div>
+
+    <!-- RAM / JVM -->
+    <div class="ram-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        RAM — Processo JVM
+      </div>
+
+      <div class="jvm-container">
+        <div class="jvm-title">
+          ⬡ JVM Runtime
+        </div>
+        <div class="jvm-regions">
+
+          <div class="region region-stack" id="reg-stack">
+            <div class="region-name">Stack</div>
+            <div class="region-items" id="stack-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>
+            </div>
+          </div>
+
+          <div class="region region-heap" id="reg-heap">
+            <div class="region-name">Heap</div>
+            <div class="region-items" id="heap-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>
+            </div>
+          </div>
+
+          <div class="region region-jit" id="reg-jit">
+            <div class="region-name">JIT / Code Cache</div>
+            <div class="region-items" id="jit-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando compilação...</div>
+            </div>
+          </div>
+
+          <div class="region region-meta" id="reg-meta">
+            <div class="region-name">Metaspace</div>
+            <div class="region-items" id="meta-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando classes...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code + Steps side by side -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+
+    <div class="code-panel">
+      <div class="flow-title">// código kotlin</div>
+      <div class="code-block" id="code-display">
+        <span class="code-line cm">// selecione um cenário acima</span>
+        <span class="code-line cm">// e pressione Executar</span>
+      </div>
+    </div>
+
+    <div class="flow-panel">
+      <div class="flow-title">fluxo de execução</div>
+      <div class="steps-list" id="steps-list"></div>
+    </div>
+
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="runNext()" id="btn-run">▶ Executar passo a passo</button>
+    <button class="ctrl-btn" onclick="runAll()">⚡ Executar tudo</button>
+    <button class="ctrl-btn" onclick="resetAll()">↺ Resetar</button>
+  </div>
+
+  <!-- Explanation -->
+  <div class="explanation" id="explanation-box">
+    <h3>📌 Como usar</h3>
+    <p>Escolha um <strong>cenário</strong> no topo, depois clique em <strong>Executar passo a passo</strong> para ver como cada linha de código é processada pela JVM — o que vai para a Stack, o que vai para a Heap, o que passa pelo JIT e como a CPU executa.</p>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cpu)"></div>CPU / Execução</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--stack)"></div>Stack (frames, primitivos)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--heap)"></div>Heap (objetos)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--jit)"></div>JIT (código nativo)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--meta)"></div>Metaspace (classes)</div>
+  </div>
+
+</div>
+
+<script>
+const scenarios = [
+  {
+    name: "val x = 42",
+    code: [
+      { text: `<span class="kw">fun</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    <span class="kw">val</span> x: <span class="tp">Int</span> = <span class="num">42</span>     <span class="cm">// primitivo</span>`, hl: false },
+      { text: `    <span class="kw">val</span> y: <span class="tp">Int</span> = x * <span class="num">2</span>   <span class="cm">// operação</span>`, hl: false },
+      { text: `    println(y)            <span class="cm">// saída</span>`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "JVM inicia — carrega main()",
+        desc: "A JVM cria o frame de main() na Stack. O frame reserva espaço para variáveis locais.",
+        tag: "stack",
+        codeIdx: 0,
+        stack: ["Frame: main()"],
+        heap: [], jit: [], meta: ["kotlin.Unit", "MainKt"],
+        cpu: "L1", cpuVal: "init frame",
+        explain: "<strong>Frame</strong> é o espaço que a Stack reserva para uma função. Cada chamada de função cria um novo frame. Quando a função termina, o frame é destruído automaticamente.",
+        regions: ["stack", "meta"]
+      },
+      {
+        title: "val x: Int = 42",
+        desc: "Int é primitivo. Na JVM, Kotlin compila Int não-nullable como int primitivo. O valor 42 vai direto para o frame na Stack — sem ir para a Heap.",
+        tag: "stack",
+        codeIdx: 1,
+        stack: ["Frame: main()", "  x: Int = 42"],
+        heap: [], jit: [], meta: ["kotlin.Unit", "MainKt"],
+        cpu: "reg", cpuVal: "42",
+        explain: "<strong>Primitivos (Int, Long, Boolean...)</strong> vivem na Stack quando são variáveis locais. São valores diretos — nenhum objeto é criado, nenhuma alocação na Heap.",
+        regions: ["stack", "cpu-reg"]
+      },
+      {
+        title: "val y: Int = x * 2",
+        desc: "A CPU carrega x dos registradores, multiplica por 2. O resultado (84) é armazenado na Stack como y.",
+        tag: "cpu",
+        codeIdx: 2,
+        stack: ["Frame: main()", "  x: Int = 42", "  y: Int = 84"],
+        heap: [], jit: [], meta: ["kotlin.Unit", "MainKt"],
+        cpu: "reg", cpuVal: "x=42 → 84",
+        explain: "A operação <strong>x * 2</strong> é uma instrução <code>IMUL</code> no bytecode. A CPU executa via registradores — tudo na velocidade do hardware, sem tocar a Heap.",
+        regions: ["stack", "cpu-reg"]
+      },
+      {
+        title: "println(y) — execução finaliza",
+        desc: "println é chamado com y=84. Após retorno, o frame de main() é removido da Stack. Memória liberada automaticamente.",
+        tag: "stack",
+        codeIdx: 3,
+        stack: ["← frame destruído"],
+        heap: [], jit: ["println() nativo"], meta: ["kotlin.Unit", "MainKt"],
+        cpu: "l1", cpuVal: "output: 84",
+        explain: "Quando main() termina, o frame é <strong>desempilhado automaticamente</strong>. Não há Garbage Collector envolvido — a Stack libera sozinha por ser LIFO.",
+        regions: ["stack", "jit"]
+      }
+    ]
+  },
+  {
+    name: "fun soma(a, b)",
+    code: [
+      { text: `<span class="kw">fun</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    <span class="kw">val</span> r = <span class="fn">soma</span>(<span class="num">3</span>, <span class="num">5</span>)`, hl: false },
+      { text: `    println(r)`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">fun</span> <span class="fn">soma</span>(a: <span class="tp">Int</span>, b: <span class="tp">Int</span>): <span class="tp">Int</span> {`, hl: false },
+      { text: `    <span class="kw">val</span> resultado = a + b`, hl: false },
+      { text: `    <span class="kw">return</span> resultado`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "main() entra na Stack",
+        desc: "JVM cria frame de main(). Metaspace já tem a classe carregada.",
+        tag: "stack", codeIdx: 0,
+        stack: ["Frame: main()"],
+        heap: [], jit: [], meta: ["MainKt"],
+        cpu: "l1", cpuVal: "load main",
+        explain: "A JVM carrega a classe no <strong>Metaspace</strong> antes de executar. O bytecode de main() e soma() ficam lá. A execução começa criando o frame de main() na Stack.",
+        regions: ["stack", "meta"]
+      },
+      {
+        title: "soma(3, 5) é chamada",
+        desc: "Um novo frame é empilhado para soma(). Os parâmetros a=3 e b=5 são copiados por valor para o frame.",
+        tag: "stack", codeIdx: 5,
+        stack: ["Frame: soma()", "  a: Int = 3", "  b: Int = 5", "Frame: main()"],
+        heap: [], jit: [], meta: ["MainKt"],
+        cpu: "reg", cpuVal: "a=3, b=5",
+        explain: "Em Kotlin/JVM, <strong>Int é passado por valor</strong> — uma cópia é feita para o frame de soma(). Nenhum objeto é criado. Dois frames coexistem na Stack ao mesmo tempo.",
+        regions: ["stack"]
+      },
+      {
+        title: "val resultado = a + b",
+        desc: "CPU soma a + b via registradores. resultado = 8 é armazenado no frame de soma().",
+        tag: "cpu", codeIdx: 6,
+        stack: ["Frame: soma()", "  a: Int = 3", "  b: Int = 5", "  resultado: Int = 8", "Frame: main()"],
+        heap: [], jit: [], meta: ["MainKt"],
+        cpu: "reg", cpuVal: "3 + 5 = 8",
+        explain: "A instrução <code>IADD</code> do bytecode é executada pelo JIT como instrução <code>ADD</code> nativa da CPU. Extremamente rápido — tudo nos registradores.",
+        regions: ["stack"]
+      },
+      {
+        title: "return — frame de soma() destruído",
+        desc: "soma() retorna 8. O frame é desempilhado. O valor 8 é copiado de volta para o frame de main() como r.",
+        tag: "stack", codeIdx: 7,
+        stack: ["Frame: main()", "  r: Int = 8"],
+        heap: [], jit: ["soma() compilada"], meta: ["MainKt"],
+        cpu: "l1", cpuVal: "r = 8",
+        explain: "O frame de soma() é <strong>destruído automaticamente</strong>. O valor de retorno (8) é passado para main() via registrador — não há objeto criado. Stack volta para 1 frame.",
+        regions: ["stack", "jit"]
+      }
+    ]
+  },
+  {
+    name: "val obj = User()",
+    code: [
+      { text: `<span class="kw">data class</span> <span class="fn">User</span>(`, hl: false },
+      { text: `    <span class="kw">val</span> nome: <span class="tp">String</span>,`, hl: false },
+      { text: `    <span class="kw">val</span> idade: <span class="tp">Int</span>`, hl: false },
+      { text: `)`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">fun</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    <span class="kw">val</span> user = <span class="fn">User</span>(<span class="str">"Ana"</span>, <span class="num">30</span>)`, hl: false },
+      { text: `    println(user.nome)`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "JVM carrega a classe User",
+        desc: "Antes de executar, a JVM carrega a definição da data class User no Metaspace. Bytecode, estrutura de campos, métodos — tudo fica lá.",
+        tag: "meta", codeIdx: 0,
+        stack: [], heap: [], jit: [],
+        meta: ["User.class", "MainKt.class"],
+        cpu: "l2", cpuVal: "load class",
+        explain: "O <strong>Metaspace</strong> armazena metadados das classes — não instâncias. É a 'planta da casa'. Cada classe é carregada uma única vez pelo ClassLoader.",
+        regions: ["meta"]
+      },
+      {
+        title: "main() entra — frame criado",
+        desc: "Stack recebe o frame de main(). A variável user ainda não existe — será uma referência.",
+        tag: "stack", codeIdx: 5,
+        stack: ["Frame: main()", "  user → (null)"],
+        heap: [], jit: [], meta: ["User.class", "MainKt.class"],
+        cpu: "l1", cpuVal: "init frame",
+        explain: "O frame na Stack reserva espaço para a <strong>referência</strong> user. Mas o objeto ainda não foi criado — a referência aponta para null por enquanto.",
+        regions: ["stack"]
+      },
+      {
+        title: "User(\"Ana\", 30) — objeto criado na Heap",
+        desc: "O construtor aloca o objeto User na Heap. A Stack guarda apenas a referência (endereço de memória) para ele.",
+        tag: "heap", codeIdx: 6,
+        stack: ["Frame: main()", "  user → 0x7f3a"],
+        heap: ["User @ 0x7f3a", "  nome → String@0x8b1c", "  idade = 30"],
+        jit: [], meta: ["User.class", "MainKt.class"],
+        cpu: "reg", cpuVal: "0x7f3a",
+        explain: "<strong>Objetos sempre vivem na Heap.</strong> A Stack guarda apenas o endereço (referência). O Int 'idade=30' dentro do objeto também fica na Heap — primitivos dentro de objetos ficam com o objeto.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "String \"Ana\" — também na Heap",
+        desc: "String em Kotlin/JVM é um objeto imutável. Ela também vive na Heap, e User.nome guarda uma referência para ela.",
+        tag: "heap", codeIdx: 1,
+        stack: ["Frame: main()", "  user → 0x7f3a"],
+        heap: ["User @ 0x7f3a", "  nome → 0x8b1c", "  idade = 30", `String @ 0x8b1c = "Ana"`],
+        jit: [], meta: ["User.class", "String.class", "MainKt.class"],
+        cpu: "l1", cpuVal: `ref "Ana"`,
+        explain: "<strong>String é especial na JVM</strong> — existe um String Pool. Se você escrever <code>\"Ana\"</code> duas vezes, a JVM reutiliza o mesmo objeto na Heap. Isso é otimização automática.",
+        regions: ["heap", "meta"]
+      },
+      {
+        title: "GC — Garbage Collector monitora",
+        desc: "Quando main() terminar, user sai do escopo. O objeto User na Heap perde sua referência. O GC irá coletá-lo.",
+        tag: "heap", codeIdx: 7,
+        stack: ["← frame destruído"],
+        heap: ["User @ 0x7f3a ← GC eligible", `String @ 0x8b1c ← GC eligible`],
+        jit: ["println() nativo"], meta: ["User.class", "String.class"],
+        cpu: "l2", cpuVal: "GC scan",
+        explain: "O <strong>Garbage Collector</strong> monitora objetos na Heap sem referências ativas. Ele coleta automaticamente — mas tem custo. Esse é o motivo de <em>GC pauses</em> em sistemas de alta performance.",
+        regions: ["heap"]
+      }
+    ]
+  },
+  {
+    name: "Recursão",
+    code: [
+      { text: `<span class="kw">fun</span> <span class="fn">contagem</span>(n: <span class="tp">Int</span>) {`, hl: false },
+      { text: `    <span class="kw">if</span> (n == <span class="num">0</span>) <span class="kw">return</span>`, hl: false },
+      { text: `    println(n)`, hl: false },
+      { text: `    <span class="fn">contagem</span>(n - <span class="num">1</span>) <span class="cm">// recursão</span>`, hl: false },
+      { text: `}`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="cm">// contagem(3)</span>`, hl: false },
+    ],
+    steps: [
+      {
+        title: "contagem(3) — primeiro frame",
+        desc: "Stack recebe o frame de contagem(3). n=3 é um primitivo no frame.",
+        tag: "stack", codeIdx: 0,
+        stack: ["Frame: contagem(3)", "  n: Int = 3"],
+        heap: [], jit: [], meta: ["MainKt"],
+        cpu: "l1", cpuVal: "n=3",
+        explain: "Recursão <strong>empilha frames</strong>. Cada chamada cria um novo frame na Stack. A Stack tem limite — excedê-lo causa <code>StackOverflowError</code>.",
+        regions: ["stack"]
+      },
+      {
+        title: "contagem(2) — segundo frame empilhado",
+        desc: "contagem chama a si mesma com n-1. Novo frame para contagem(2) é empilhado sobre o anterior.",
+        tag: "stack", codeIdx: 3,
+        stack: ["Frame: contagem(2)", "  n: Int = 2", "Frame: contagem(3)", "  n: Int = 3"],
+        heap: [], jit: [], meta: ["MainKt"],
+        cpu: "l1", cpuVal: "n=2",
+        explain: "O frame de contagem(3) <strong>ainda existe na Stack</strong> enquanto contagem(2) executa. A Stack cresce para cima a cada chamada recursiva.",
+        regions: ["stack"]
+      },
+      {
+        title: "contagem(1) — terceiro frame",
+        desc: "Stack agora tem 3 frames simultâneos. A profundidade cresce linearmente com n.",
+        tag: "stack", codeIdx: 3,
+        stack: ["Frame: contagem(1)", "  n: Int = 1", "Frame: contagem(2)", "  n: Int = 2", "Frame: contagem(3)", "  n: Int = 3"],
+        heap: [], jit: [], meta: ["MainKt"],
+        cpu: "l1", cpuVal: "n=1",
+        explain: "Com n=3, temos 3 frames. Com n=100.000, teríamos 100.000 frames. <strong>Stack Overflow</strong> acontece quando a JVM não consegue mais alocar frames.",
+        regions: ["stack"]
+      },
+      {
+        title: "contagem(0) — condição de parada",
+        desc: "n==0, função retorna. O frame de contagem(0) é destruído.",
+        tag: "stack", codeIdx: 1,
+        stack: ["Frame: contagem(1)", "Frame: contagem(2)", "Frame: contagem(3)"],
+        heap: [], jit: [], meta: ["MainKt"],
+        cpu: "reg", cpuVal: "n==0 → return",
+        explain: "A <strong>base case</strong> (caso base) é o que para a recursão. Sem ela, a recursão é infinita e a Stack estoura garantidamente.",
+        regions: ["stack"]
+      },
+      {
+        title: "Stack desempilha — frames destruídos",
+        desc: "Cada frame é destruído em ordem reversa. LIFO: último a entrar, primeiro a sair.",
+        tag: "stack", codeIdx: 4,
+        stack: ["← todos os frames destruídos"],
+        heap: [], jit: ["contagem() nativo"], meta: ["MainKt"],
+        cpu: "l1", cpuVal: "done",
+        explain: "<strong>tailrec</strong> no Kotlin resolve isso: o compilador transforma a recursão em loop, usando apenas 1 frame. O modificador <code>tailrec</code> exige que a chamada recursiva seja a última operação da função.",
+        regions: ["stack", "jit"]
+      }
+    ]
+  },
+  {
+    name: "JIT aquecimento",
+    code: [
+      { text: `<span class="kw">fun</span> <span class="fn">calcular</span>(x: <span class="tp">Int</span>): <span class="tp">Int</span> = x * x`, hl: false },
+      { text: ``, hl: false },
+      { text: `<span class="kw">fun</span> <span class="fn">main</span>() {`, hl: false },
+      { text: `    <span class="cm">// chamada 1~99: interpretado</span>`, hl: false },
+      { text: `    <span class="kw">repeat</span>(<span class="num">100</span>) { <span class="fn">calcular</span>(it) }`, hl: false },
+      { text: `    <span class="cm">// chamada 100+: JIT compila</span>`, hl: false },
+      { text: `    <span class="kw">repeat</span>(<span class="num">10_000</span>) { <span class="fn">calcular</span>(it) }`, hl: false },
+      { text: `}`, hl: false },
+    ],
+    steps: [
+      {
+        title: "Primeiras execuções — modo interpretado",
+        desc: "JVM executa o bytecode linha por linha via interpretador. Funciona, mas sem otimização. JIT monitora frequência.",
+        tag: "meta", codeIdx: 3,
+        stack: ["Frame: main()", "Frame: calcular(x)"],
+        heap: [], jit: ["monitorando: calcular() x12"],
+        meta: ["MainKt.class"],
+        cpu: "l2", cpuVal: "bytecode interp",
+        explain: "No início, a JVM usa o <strong>interpretador</strong> — lê e executa bytecode instrução por instrução. É flexível mas mais lento. O JIT fica contando quantas vezes cada método é chamado.",
+        regions: ["stack", "jit", "meta"]
+      },
+      {
+        title: "JIT detecta método 'quente'",
+        desc: "calcular() atingiu o threshold de chamadas. JIT o marca como 'hot method' e inicia compilação em background.",
+        tag: "jit", codeIdx: 5,
+        stack: ["Frame: main()"],
+        heap: [], jit: ["⚡ compilando: calcular()", "hot threshold atingido"],
+        meta: ["MainKt.class"],
+        cpu: "l1", cpuVal: "JIT compile",
+        explain: "<strong>Hot method</strong> é o termo para método chamado frequentemente. A JVM tem um threshold (padrão ~10.000 chamadas no HotSpot). Quando atingido, o JIT compila para código nativo.",
+        regions: ["jit"]
+      },
+      {
+        title: "JIT gera código nativo",
+        desc: "calcular() agora existe como código nativo no Code Cache. Próximas chamadas não passam mais pelo interpretador.",
+        tag: "jit", codeIdx: 6,
+        stack: ["Frame: main()"],
+        heap: [],
+        jit: ["calcular() → nativo x86/ARM", "MOV eax, edi", "IMUL eax, edi", "RET"],
+        meta: ["MainKt.class"],
+        cpu: "reg", cpuVal: "native exec",
+        explain: "O código nativo gerado pelo JIT fica no <strong>Code Cache</strong> na RAM. A CPU executa diretamente — sem intermediário. Velocidade equivalente a C compilado.",
+        regions: ["jit", "cpu-reg"]
+      },
+      {
+        title: "JIT aplica otimizações impossíveis em C",
+        desc: "JIT analisa o runtime e pode fazer: inlining, eliminação de código morto, otimização por tipo real observado.",
+        tag: "jit", codeIdx: 6,
+        stack: ["Frame: main() (inlined)"],
+        heap: [],
+        jit: ["calcular() → inlined", "x*x direto em main()", "zero overhead de chamada"],
+        meta: ["MainKt.class"],
+        cpu: "l1", cpuVal: "inlined",
+        explain: "<strong>Inlining</strong>: o JIT pode copiar o corpo de calcular() diretamente para onde é chamado — eliminando o overhead de criação de frame. Um compilador C não tem essa informação em tempo de compilação.",
+        regions: ["jit", "stack"]
+      }
+    ]
+  }
+];
+
+let currentScenario = 0;
+let currentStep = -1;
+let autoRunTimer = null;
+
+function loadScenario(idx) {
+  currentScenario = idx;
+  currentStep = -1;
+  document.querySelectorAll('.scenario-btn').forEach((b, i) => {
+    b.classList.toggle('active', i === idx);
+  });
+  renderCode();
+  renderSteps();
+  resetRegions();
+  updateProgress();
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Pronto</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para começar a simulação do cenário: <strong>${scenarios[idx].name}</strong></p>
+  `;
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+}
+
+function renderCode() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('code-display');
+  div.innerHTML = s.code.map((l, i) =>
+    `<span class="code-line" id="cl-${i}">${l.text || '&nbsp;'}</span>`
+  ).join('\n');
+}
+
+function renderSteps() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('steps-list');
+  div.innerHTML = s.steps.map((step, i) => `
+    <div class="step" id="step-${i}" onclick="jumpToStep(${i})">
+      <div class="step-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="step-content">
+        <div class="step-title">${step.title}</div>
+        <div class="step-desc" style="display:none">${step.desc}</div>
+        <span class="step-tag tag-${step.tag}" style="display:none">${step.tag.toUpperCase()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function resetRegions() {
+  ['stack', 'heap', 'jit', 'meta'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>`;
+    document.getElementById(`reg-${r}`).classList.remove('active');
+  });
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+}
+
+function updateProgress() {
+  const s = scenarios[currentScenario];
+  const pct = currentStep < 0 ? 0 : ((currentStep + 1) / s.steps.length) * 100;
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function applyStep(idx) {
+  const s = scenarios[currentScenario];
+  const step = s.steps[idx];
+
+  // highlight code
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+  const cl = document.getElementById(`cl-${step.codeIdx}`);
+  if (cl) cl.classList.add('hl');
+
+  // update steps UI
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.toggle('active-step', i === idx);
+    const desc = el.querySelector('.step-desc');
+    const tag = el.querySelector('.step-tag');
+    if (i === idx) {
+      desc.style.display = 'block';
+      tag.style.display = 'inline-block';
+    } else if (i < idx) {
+      desc.style.display = 'none';
+      tag.style.display = 'none';
+    } else {
+      desc.style.display = 'none';
+      tag.style.display = 'none';
+    }
+  });
+
+  // update regions
+  ['stack', 'heap', 'jit', 'meta'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const items = step[r];
+    const region = document.getElementById(`reg-${r}`);
+    if (items && items.length > 0) {
+      el.innerHTML = items.map(it =>
+        `<div class="mem-item ${r}-item visible">${it}</div>`
+      ).join('');
+      region.classList.add('active');
+    } else {
+      el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">vazio</div>`;
+      region.classList.remove('active');
+    }
+  });
+
+  // CPU
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  const cpuMap = { reg: 'cpu-reg', l1: 'cpu-l1', l2: 'cpu-l2', l3: 'cpu-l3' };
+  const cpuEl = document.getElementById(cpuMap[step.cpu]);
+  if (cpuEl) cpuEl.classList.add('active-layer');
+  document.getElementById('cpu-reg-val').textContent = step.cpuVal || '';
+
+  // Explanation
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>💡 passo ${idx + 1} — ${step.title}</h3>
+    <p>${step.explain}</p>
+  `;
+
+  updateProgress();
+}
+
+function runNext() {
+  const s = scenarios[currentScenario];
+  currentStep++;
+  if (currentStep >= s.steps.length) {
+    currentStep = s.steps.length - 1;
+    document.getElementById('explanation-box').innerHTML = `
+      <h3>✅ Simulação concluída</h3>
+      <p>Todos os passos foram executados. Clique em <strong>Resetar</strong> para recomeçar ou escolha outro cenário.</p>
+    `;
+    return;
+  }
+  applyStep(currentStep);
+}
+
+function runAll() {
+  resetAll();
+  const s = scenarios[currentScenario];
+  let i = 0;
+  function next() {
+    if (i >= s.steps.length) return;
+    currentStep = i;
+    applyStep(i);
+    i++;
+    autoRunTimer = setTimeout(next, 1200);
+  }
+  next();
+}
+
+function resetAll() {
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  currentStep = -1;
+  resetRegions();
+  renderCode();
+  renderSteps();
+  updateProgress();
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Resetado</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para iniciar a simulação.</p>
+  `;
+}
+
+function jumpToStep(idx) {
+  currentStep = idx;
+  applyStep(idx);
+}
+
+// Init
+loadScenario(0);
+</script>
+</body>
+</html>

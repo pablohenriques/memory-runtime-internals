@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JavaScript Engine — Por Debaixo dos Panos</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #09090b;
+    --bg2: #111114;
+    --bg3: #19191e;
+    --border: #27272a;
+    --border-bright: #3f3f46;
+    --engine: #f59e0b;
+    --engine-dim: #78510e;
+    --callstack: #06b6d4;
+    --callstack-dim: #0e4f5c;
+    --heap: #a855f7;
+    --heap-dim: #4c1d95;
+    --eventloop: #22c55e;
+    --eventloop-dim: #14532d;
+    --webapi: #f43f5e;
+    --webapi-dim: #6b1728;
+    --queue: #3b82f6;
+    --queue-dim: #1e3a6e;
+    --text: #fafafa;
+    --text-mid: #a1a1aa;
+    --text-dim: #52525b;
+    --accent: #facc15;
+    --accent-dim: rgba(250,204,21,0.12);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  .scanlines {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+  }
+
+  .main {
+    position: relative; z-index: 1;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 28px 20px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 36px;
+    position: relative;
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: -16px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+  .header h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: clamp(1.2rem, 2.8vw, 1.8rem);
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.03em;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 400;
+  }
+
+  /* Scenario buttons */
+  .scenarios {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 28px;
+  }
+  .scenario-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+  .scenario-btn:hover { border-color: var(--accent); color: var(--text-mid); }
+  .scenario-btn.active {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Progress */
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  /* Architecture grid */
+  .arch {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  /* Engine box (left) */
+  .engine-box {
+    grid-column: 1;
+    grid-row: 1;
+    background: var(--bg2);
+    border: 1px solid var(--engine-dim);
+    border-radius: 10px;
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .box-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .box-title .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .engine-box .box-title { color: var(--engine); }
+
+  .engine-layer {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    transition: all 0.3s;
+  }
+  .engine-layer .layer-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .engine-layer .layer-info {
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+  .engine-layer.active-layer {
+    border-color: var(--engine);
+    box-shadow: 0 0 12px rgba(245,158,11,0.2);
+  }
+  .engine-layer.active-layer .layer-name { color: var(--engine); }
+
+  #engine-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--accent);
+    margin-top: 4px;
+    min-height: 14px;
+  }
+
+  /* Runtime box (right) */
+  .runtime-box {
+    grid-column: 2;
+    grid-row: 1;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .runtime-box .box-title { color: var(--queue); margin-bottom: 12px; }
+
+  .runtime-inner {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .runtime-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .runtime-regions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+    gap: 8px;
+  }
+
+  .region {
+    border-radius: 6px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+    min-height: 110px;
+  }
+  .region::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .region.active::before { opacity: 1; }
+
+  .region-callstack { background: rgba(6,182,212,0.04); }
+  .region-callstack.active { border-color: var(--callstack); box-shadow: 0 0 14px rgba(6,182,212,0.2); }
+  .region-callstack::before { background: rgba(6,182,212,0.03); }
+
+  .region-heap { background: rgba(168,85,247,0.04); }
+  .region-heap.active { border-color: var(--heap); box-shadow: 0 0 14px rgba(168,85,247,0.2); }
+  .region-heap::before { background: rgba(168,85,247,0.03); }
+
+  .region-webapi { background: rgba(244,63,94,0.04); }
+  .region-webapi.active { border-color: var(--webapi); box-shadow: 0 0 14px rgba(244,63,94,0.2); }
+  .region-webapi::before { background: rgba(244,63,94,0.03); }
+
+  .region-queue { background: rgba(59,130,246,0.04); }
+  .region-queue.active { border-color: var(--queue); box-shadow: 0 0 14px rgba(59,130,246,0.2); }
+  .region-queue::before { background: rgba(59,130,246,0.03); }
+
+  .region-eventloop { background: rgba(34,197,94,0.04); }
+  .region-eventloop.active { border-color: var(--eventloop); box-shadow: 0 0 14px rgba(34,197,94,0.2); }
+  .region-eventloop::before { background: rgba(34,197,94,0.03); }
+
+  .region-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .region-callstack .region-name { color: var(--callstack); }
+  .region-heap .region-name { color: var(--heap); }
+  .region-webapi .region-name { color: var(--webapi); }
+  .region-queue .region-name { color: var(--queue); }
+  .region-eventloop .region-name { color: var(--eventloop); }
+
+  .region-items { display: flex; flex-direction: column; gap: 3px; min-height: 60px; }
+
+  .mem-item {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.58rem;
+    padding: 3px 6px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: all 0.4s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mem-item.visible { opacity: 1; transform: translateY(0); }
+
+  .callstack-item { background: rgba(6,182,212,0.1); border-color: rgba(6,182,212,0.2); color: var(--callstack); }
+  .heap-item { background: rgba(168,85,247,0.1); border-color: rgba(168,85,247,0.2); color: var(--heap); }
+  .webapi-item { background: rgba(244,63,94,0.1); border-color: rgba(244,63,94,0.2); color: var(--webapi); }
+  .queue-item { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.2); color: var(--queue); }
+  .eventloop-item { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.2); color: var(--eventloop); }
+
+  /* Code + Steps */
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .code-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .panel-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .code-block {
+    background: #050507;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    line-height: 1.85;
+    overflow-x: auto;
+  }
+  .code-line {
+    display: block;
+    transition: all 0.3s;
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+  .code-line.hl { background: rgba(250,204,21,0.1); color: var(--accent); }
+  .kw { color: #c792ea; }
+  .fn { color: #82aaff; }
+  .str { color: #c3e88d; }
+  .num { color: #f78c6c; }
+  .cm { color: #546e7a; }
+  .tp { color: var(--callstack); }
+  .op { color: #89ddff; }
+  .prop { color: #f07178; }
+
+  .flow-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+
+  .steps-list { display: flex; flex-direction: column; gap: 6px; }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .step:hover { border-color: var(--accent); }
+  .step.active-step {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .step-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 20px;
+    padding-top: 1px;
+  }
+  .step-content { flex: 1; }
+  .step-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .step-desc {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .step-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.56rem;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+    margin-top: 3px;
+    display: inline-block;
+  }
+  .tag-callstack { background: rgba(6,182,212,0.15); color: var(--callstack); border: 1px solid rgba(6,182,212,0.3); }
+  .tag-heap { background: rgba(168,85,247,0.15); color: var(--heap); border: 1px solid rgba(168,85,247,0.3); }
+  .tag-webapi { background: rgba(244,63,94,0.15); color: var(--webapi); border: 1px solid rgba(244,63,94,0.3); }
+  .tag-queue { background: rgba(59,130,246,0.15); color: var(--queue); border: 1px solid rgba(59,130,246,0.3); }
+  .tag-eventloop { background: rgba(34,197,94,0.15); color: var(--eventloop); border: 1px solid rgba(34,197,94,0.3); }
+  .tag-engine { background: rgba(245,158,11,0.15); color: var(--engine); border: 1px solid rgba(245,158,11,0.3); }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .ctrl-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.primary {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+  .ctrl-btn.primary:hover { filter: brightness(1.1); }
+
+  /* Explanation */
+  .explanation {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+  .explanation h3 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .explanation p {
+    font-size: 0.78rem;
+    color: var(--text-mid);
+    line-height: 1.7;
+  }
+  .explanation p strong { color: var(--text); }
+  .explanation p code {
+    font-family: 'IBM Plex Mono', monospace;
+    background: var(--bg3);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    color: var(--accent);
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    box-shadow: 0 0 4px currentColor;
+  }
+
+  @media (max-width: 900px) {
+    .arch { grid-template-columns: 1fr; }
+    .engine-box { grid-column: 1; grid-row: auto; }
+    .runtime-box { grid-column: 1; grid-row: auto; }
+    .runtime-regions { grid-template-columns: 1fr 1fr; }
+    .panels { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 500px) {
+    .runtime-regions { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="main">
+
+  <div class="header">
+    <h1>JavaScript Engine — <span>Por Debaixo dos Panos</span></h1>
+    <p>Visualize como seu código JS percorre Call Stack, Heap, Event Loop e JIT (V8)</p>
+  </div>
+
+  <!-- Scenarios -->
+  <div class="scenarios" id="scenario-buttons"></div>
+
+  <!-- Progress -->
+  <div class="progress-bar">
+    <div class="progress-fill" id="progress" style="width:0%"></div>
+  </div>
+
+  <!-- Architecture -->
+  <div class="arch">
+
+    <!-- Engine -->
+    <div class="engine-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        V8 ENGINE
+      </div>
+      <div class="engine-layer" id="eng-parser">
+        <div class="layer-name" style="color:var(--engine)">Parser</div>
+        <div class="layer-info">Source → AST</div>
+      </div>
+      <div class="engine-layer" id="eng-ignition">
+        <div class="layer-name">Ignition</div>
+        <div class="layer-info">Interpretador · Bytecode</div>
+      </div>
+      <div class="engine-layer" id="eng-turbofan">
+        <div class="layer-name">TurboFan</div>
+        <div class="layer-info">JIT · Código nativo</div>
+      </div>
+      <div class="engine-layer" id="eng-gc">
+        <div class="layer-name">Orinoco GC</div>
+        <div class="layer-info">Mark-Sweep · Scavenger</div>
+      </div>
+      <div id="engine-val" style="margin-top:auto;padding-top:8px;border-top:1px solid var(--border);"></div>
+    </div>
+
+    <!-- Runtime -->
+    <div class="runtime-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        JS RUNTIME
+      </div>
+
+      <div class="runtime-inner">
+        <div class="runtime-label">⬡ Ambiente de Execução</div>
+        <div class="runtime-regions">
+
+          <div class="region region-callstack" id="reg-callstack">
+            <div class="region-name">Call Stack</div>
+            <div class="region-items" id="callstack-items">
+              <div style="font-size:0.56rem;color:var(--text-dim);margin-top:4px">aguardando...</div>
+            </div>
+          </div>
+
+          <div class="region region-heap" id="reg-heap">
+            <div class="region-name">Heap</div>
+            <div class="region-items" id="heap-items">
+              <div style="font-size:0.56rem;color:var(--text-dim);margin-top:4px">aguardando...</div>
+            </div>
+          </div>
+
+          <div class="region region-webapi" id="reg-webapi">
+            <div class="region-name">Web APIs</div>
+            <div class="region-items" id="webapi-items">
+              <div style="font-size:0.56rem;color:var(--text-dim);margin-top:4px">aguardando...</div>
+            </div>
+          </div>
+
+          <div class="region region-queue" id="reg-queue">
+            <div class="region-name">Task Queue</div>
+            <div class="region-items" id="queue-items">
+              <div style="font-size:0.56rem;color:var(--text-dim);margin-top:4px">aguardando...</div>
+            </div>
+          </div>
+
+          <div class="region region-eventloop" id="reg-eventloop">
+            <div class="region-name">Event Loop</div>
+            <div class="region-items" id="eventloop-items">
+              <div style="font-size:0.56rem;color:var(--text-dim);margin-top:4px">aguardando...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code + Steps -->
+  <div class="panels">
+    <div class="code-panel">
+      <div class="panel-title">// código javascript</div>
+      <div class="code-block" id="code-display">
+        <span class="code-line cm">// selecione um cenário acima</span>
+      </div>
+    </div>
+
+    <div class="flow-panel">
+      <div class="panel-title">fluxo de execução</div>
+      <div class="steps-list" id="steps-list"></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="runNext()">▶ Passo a passo</button>
+    <button class="ctrl-btn" onclick="runAll()">⚡ Executar tudo</button>
+    <button class="ctrl-btn" onclick="resetAll()">↺ Resetar</button>
+  </div>
+
+  <!-- Explanation -->
+  <div class="explanation" id="explanation-box">
+    <h3>📌 Como usar</h3>
+    <p>Escolha um <strong>cenário</strong> no topo, depois clique em <strong>Passo a passo</strong> para ver como cada linha é processada pelo engine JavaScript — o que vai para a Call Stack, o que vai para a Heap, como o Event Loop orquestra e como o V8 otimiza.</p>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--engine);color:var(--engine)"></div>V8 Engine</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--callstack);color:var(--callstack)"></div>Call Stack</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--heap);color:var(--heap)"></div>Heap (objetos)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--webapi);color:var(--webapi)"></div>Web APIs</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--queue);color:var(--queue)"></div>Task Queue</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--eventloop);color:var(--eventloop)"></div>Event Loop</div>
+  </div>
+
+</div>
+
+<script>
+const scenarios = [
+  /* ─────────────────────────── 0: let x = 42 ─────────────────────────── */
+  {
+    name: "let x = 42",
+    code: [
+      { text: `<span class="kw">function</span> <span class="fn">main</span>() {` },
+      { text: `    <span class="kw">let</span> x <span class="op">=</span> <span class="num">42</span>;          <span class="cm">// primitivo</span>` },
+      { text: `    <span class="kw">let</span> y <span class="op">=</span> x <span class="op">*</span> <span class="num">2</span>;        <span class="cm">// operação</span>` },
+      { text: `    console.<span class="fn">log</span>(y);       <span class="cm">// saída</span>` },
+      { text: `}` },
+      { text: `<span class="fn">main</span>();` },
+    ],
+    steps: [
+      {
+        title: "V8 faz parsing do código",
+        desc: "O parser transforma o source code em uma AST (Abstract Syntax Tree). Cada token vira um nó da árvore.",
+        tag: "engine", codeIdx: -1,
+        callstack: [], heap: [], webapi: [], queue: [], eventloop: [],
+        engine: "parser", engineVal: "source → AST",
+        explain: "Antes de qualquer execução, o V8 precisa <strong>entender</strong> o código. O <strong>Parser</strong> lê o texto e cria uma AST — uma representação em árvore de cada expressão, declaração e operador. Erros de sintaxe são detectados aqui.",
+        regions: []
+      },
+      {
+        title: "Ignition gera bytecode",
+        desc: "O interpretador Ignition converte a AST em bytecode — uma representação intermediária compacta que o V8 executa.",
+        tag: "engine", codeIdx: -1,
+        callstack: [], heap: [], webapi: [], queue: [], eventloop: [],
+        engine: "ignition", engineVal: "AST → bytecode",
+        explain: "<strong>Ignition</strong> é o interpretador do V8. Diferente de compilar tudo para código nativo (caro e lento no início), ele gera <strong>bytecode</strong> — rápido de criar, razoavelmente rápido de executar. Isso permite que o código comece a rodar quase instantaneamente.",
+        regions: []
+      },
+      {
+        title: "Execution Context global criado",
+        desc: "O V8 cria o Global Execution Context e empurra para a Call Stack. Variáveis globais e funções são registradas.",
+        tag: "callstack", codeIdx: 5,
+        callstack: ["Global Execution Context"],
+        heap: ["function main() {...}"], webapi: [], queue: [],
+        eventloop: ["🔄 idle — stack não vazia"],
+        engine: "ignition", engineVal: "exec global",
+        explain: "O <strong>Execution Context</strong> é o ambiente onde o código roda. O contexto global é criado primeiro — registra funções via <strong>hoisting</strong> (a declaração de main() é içada para o topo antes da execução). O Event Loop observa, mas não interfere enquanto a Stack tiver trabalho.",
+        regions: ["callstack", "heap", "eventloop"]
+      },
+      {
+        title: "main() é chamada — novo contexto",
+        desc: "A chamada main() cria um novo Execution Context com seu próprio escopo de variáveis e empilha na Call Stack.",
+        tag: "callstack", codeIdx: 0,
+        callstack: ["main() Context", "Global Context"],
+        heap: ["function main() {...}"], webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "enter main()",
+        explain: "Cada chamada de função cria um <strong>Execution Context</strong> próprio com: <strong>Variable Environment</strong> (variáveis locais), <strong>Scope Chain</strong> (acesso a escopos externos), e <strong>this</strong>. A Call Stack opera em LIFO — último contexto empilhado, primeiro a ser desempilhado.",
+        regions: ["callstack"]
+      },
+      {
+        title: "let x = 42 — primitivo na stack",
+        desc: "x é um primitivo (number). O valor 42 é armazenado diretamente no contexto da Call Stack — não vai para a Heap.",
+        tag: "callstack", codeIdx: 1,
+        callstack: ["main() Context", "  x = 42", "Global Context"],
+        heap: ["function main() {...}"], webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "x ← 42",
+        explain: "<strong>Primitivos</strong> (number, string, boolean, null, undefined, symbol, bigint) são armazenados diretamente no <strong>Execution Context</strong> na Call Stack. São valores imutáveis e de tamanho fixo — por isso não precisam da Heap. Diferente de objetos, <code>let y = x</code> copia o valor, não uma referência.",
+        regions: ["callstack"]
+      },
+      {
+        title: "let y = x * 2 — operação aritmética",
+        desc: "V8 carrega x, multiplica por 2. O resultado 84 é armazenado como y no contexto de main().",
+        tag: "callstack", codeIdx: 2,
+        callstack: ["main() Context", "  x = 42", "  y = 84", "Global Context"],
+        heap: ["function main() {...}"], webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "42 * 2 → 84",
+        explain: "O Ignition executa a multiplicação via bytecodes <code>Ldar</code> (load accumulator register) e <code>Mul</code>. Internamente o V8 usa <strong>Smi (Small Integer)</strong> — inteiros de 31 bits armazenados inline, sem alocação no heap. Se o número exceder 2³¹-1, vira <strong>HeapNumber</strong>.",
+        regions: ["callstack"]
+      },
+      {
+        title: "console.log(y) — saída",
+        desc: "console.log é uma Web API. O V8 delega para o runtime (navegador/Node). O valor 84 é impresso.",
+        tag: "webapi", codeIdx: 3,
+        callstack: ["log() Context", "main() Context", "Global Context"],
+        heap: ["function main() {...}"], webapi: ["console.log(84)"], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "output: 84",
+        explain: "<strong>console.log</strong> não faz parte do V8 — é uma <strong>Web API</strong> fornecida pelo runtime (navegador ou Node.js). O V8 chama a API, que executa a operação de I/O. Como é síncrona, o frame de log() é imediatamente desempilhado após a execução.",
+        regions: ["callstack", "webapi"]
+      },
+      {
+        title: "main() retorna — stack esvazia",
+        desc: "main() termina. Seu contexto é desempilhado. O Global Context também é removido. Call Stack vazia.",
+        tag: "callstack", codeIdx: 4,
+        callstack: ["← stack vazia"],
+        heap: ["← GC elegível"], webapi: [], queue: [],
+        eventloop: ["✅ stack vazia — idle"],
+        engine: "gc", engineVal: "sweep",
+        explain: "Com a Call Stack vazia, o <strong>Garbage Collector (Orinoco)</strong> pode atuar. Objetos sem referência na Heap são marcados e coletados. O Event Loop agora fica <strong>idle</strong>, esperando novas tarefas na Task Queue.",
+        regions: ["callstack", "heap", "eventloop"]
+      }
+    ]
+  },
+
+  /* ─────────────────── 1: Closures ─────────────────── */
+  {
+    name: "Closures",
+    code: [
+      { text: `<span class="kw">function</span> <span class="fn">criarContador</span>() {` },
+      { text: `    <span class="kw">let</span> count <span class="op">=</span> <span class="num">0</span>;` },
+      { text: `    <span class="kw">return function</span>() {` },
+      { text: `        count<span class="op">++</span>;` },
+      { text: `        <span class="kw">return</span> count;` },
+      { text: `    };` },
+      { text: `}` },
+      { text: `` },
+      { text: `<span class="kw">const</span> inc <span class="op">=</span> <span class="fn">criarContador</span>();` },
+      { text: `inc();  <span class="cm">// 1</span>` },
+      { text: `inc();  <span class="cm">// 2</span>` },
+    ],
+    steps: [
+      {
+        title: "criarContador() definida",
+        desc: "Função é registrada no Global Context via hoisting. O corpo é armazenado como objeto na Heap.",
+        tag: "heap", codeIdx: 0,
+        callstack: ["Global Context"],
+        heap: ["criarContador() {...}"], webapi: [], queue: [],
+        eventloop: ["🔄 idle"],
+        engine: "ignition", engineVal: "hoisting",
+        explain: "Em JavaScript, <strong>funções são objetos de primeira classe</strong> — vivem na Heap. O identificador no escopo é apenas uma referência. Isso é fundamental para closures funcionarem.",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "criarContador() é chamada",
+        desc: "Novo Execution Context empilhado. A variável local count = 0 é criada no escopo da função.",
+        tag: "callstack", codeIdx: 8,
+        callstack: ["criarContador() Ctx", "  count = 0", "Global Context"],
+        heap: ["criarContador() {...}", "função anônima {...}"], webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "count ← 0",
+        explain: "Dentro de criarContador(), o V8 cria a variável local <code>count = 0</code>. A função anônima retornada é criada como <strong>objeto na Heap</strong>. Aqui acontece a mágica: essa função anônima captura uma referência ao escopo de criarContador().",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "return — closure é criada",
+        desc: "criarContador() retorna a função anônima. Mas count NÃO é destruída — a closure mantém sua referência viva.",
+        tag: "heap", codeIdx: 2,
+        callstack: ["Global Context", "  inc → closure"],
+        heap: ["Closure Scope:", "  count = 0", "função anônima → closure"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "closure criada",
+        explain: "<strong>Closure</strong> é quando uma função \"lembra\" do escopo onde foi criada, mesmo depois que esse escopo já saiu da Call Stack. O V8 detecta que count é referenciada pela função interna e move count para um <strong>Context Object na Heap</strong> — não é destruída com o frame.",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "inc() — primeira chamada",
+        desc: "A closure acessa count no Closure Scope (Heap), incrementa para 1. A Call Stack não tem count — está na Heap.",
+        tag: "callstack", codeIdx: 9,
+        callstack: ["inc() Context", "  (acessa closure)", "Global Context"],
+        heap: ["Closure Scope:", "  count = 1", "função anônima → closure"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "count: 0→1",
+        explain: "Quando inc() executa <code>count++</code>, o V8 segue a <strong>Scope Chain</strong>: não encontra count no escopo local → busca no Closure Scope (Context Object na Heap) → encontra e incrementa. O valor persiste entre chamadas porque vive na Heap, não na Stack.",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "inc() — segunda chamada",
+        desc: "count agora é 2. Cada chamada modifica o mesmo objeto na Heap. É estado persistente sem variável global.",
+        tag: "heap", codeIdx: 10,
+        callstack: ["inc() Context", "Global Context"],
+        heap: ["Closure Scope:", "  count = 2", "função anônima → closure"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "count: 1→2",
+        explain: "Closures são o fundamento de <strong>módulos, encapsulamento e estado privado</strong> em JS. Enquanto inc tiver referência à closure, o GC <strong>não</strong> coleta count. Se fizermos <code>inc = null</code>, aí sim o Closure Scope inteiro se torna elegível para coleta.",
+        regions: ["callstack", "heap"]
+      }
+    ]
+  },
+
+  /* ─────────────────── 2: Objetos & Protótipos ─────────────────── */
+  {
+    name: "Objetos & Protótipos",
+    code: [
+      { text: `<span class="kw">const</span> user <span class="op">=</span> {` },
+      { text: `    <span class="prop">nome</span>: <span class="str">"Ana"</span>,` },
+      { text: `    <span class="prop">idade</span>: <span class="num">30</span>` },
+      { text: `};` },
+      { text: `` },
+      { text: `user.<span class="prop">email</span> <span class="op">=</span> <span class="str">"ana@dev.io"</span>;` },
+      { text: `console.<span class="fn">log</span>(user.<span class="fn">toString</span>());` },
+    ],
+    steps: [
+      {
+        title: "Objeto literal — alocação na Heap",
+        desc: "O V8 cria o objeto user na Heap. A variável user no escopo é apenas uma referência (ponteiro) para ele.",
+        tag: "heap", codeIdx: 0,
+        callstack: ["Global Context", "  user → 0x3f2a"],
+        heap: ["Object @ 0x3f2a", "  nome: \"Ana\"", "  idade: 30", "  __proto__ → Object.prototype"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "alloc object",
+        explain: "<strong>Objetos sempre vivem na Heap</strong> — são de tamanho dinâmico e podem ser referenciados de múltiplos lugares. A variável <code>user</code> na Call Stack guarda apenas o endereço de memória (0x3f2a). Todo objeto tem um <code>__proto__</code> interno apontando para seu protótipo.",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "Hidden Class — otimização do V8",
+        desc: "O V8 cria uma Hidden Class (Map) para {nome, idade}. Objetos com mesma forma compartilham a mesma Hidden Class.",
+        tag: "engine", codeIdx: 0,
+        callstack: ["Global Context", "  user → 0x3f2a"],
+        heap: ["Object @ 0x3f2a", "  Map: HC0(nome,idade)", "  nome: \"Ana\"", "  idade: 30"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "turbofan", engineVal: "Hidden Class HC0",
+        explain: "<strong>Hidden Classes (Maps)</strong> são a otimização central do V8 para acesso rápido a propriedades. Ao invés de usar hash tables (lento), o V8 atribui uma \"forma\" ao objeto. Objetos com mesmas propriedades na mesma ordem compartilham a mesma Hidden Class → acesso tão rápido quanto structs em C.",
+        regions: ["heap"]
+      },
+      {
+        title: "Adicionar propriedade — transição de Map",
+        desc: "Ao adicionar .email, o V8 transiciona o objeto para uma nova Hidden Class: HC0 → HC1.",
+        tag: "engine", codeIdx: 5,
+        callstack: ["Global Context", "  user → 0x3f2a"],
+        heap: ["Object @ 0x3f2a", "  Map: HC1(nome,idade,email)", "  nome: \"Ana\"", "  idade: 30", "  email: \"ana@dev.io\""],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "turbofan", engineVal: "HC0 → HC1 transition",
+        explain: "Adicionar propriedades causa <strong>transição de Hidden Class</strong>. O V8 cria HC1 que estende HC0. Isso é eficiente se feito consistentemente — mas adicionar propriedades em <strong>ordens diferentes</strong> em objetos similares cria Hidden Classes separadas e mata a otimização. Por isso, inicializar todas as propriedades no construtor é importante.",
+        regions: ["heap"]
+      },
+      {
+        title: "toString() — lookup na Prototype Chain",
+        desc: "user não tem toString(). V8 sobe pela Prototype Chain: user.__proto__ → Object.prototype.toString().",
+        tag: "heap", codeIdx: 6,
+        callstack: ["toString() Ctx", "Global Context"],
+        heap: ["Object @ 0x3f2a", "  ↑ não tem toString()", "Object.prototype", "  toString() ← encontrado!"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "proto chain lookup",
+        explain: "A <strong>Prototype Chain</strong> é o mecanismo de herança do JS. Quando uma propriedade não é encontrada no objeto, o V8 sobe pela cadeia de protótipos até encontrá-la ou chegar a <code>null</code>. <code>Object.prototype</code> é o topo da cadeia — todo objeto herda dele.",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "Inline Caching — otimização de acesso",
+        desc: "Após o primeiro acesso a user.nome, o V8 cacheia o offset da propriedade. Próximos acessos são quase diretos.",
+        tag: "engine", codeIdx: 1,
+        callstack: ["Global Context"],
+        heap: ["Object @ 0x3f2a", "  nome: offset 0 ← cached"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "turbofan", engineVal: "IC: monomorphic",
+        explain: "<strong>Inline Caching (IC)</strong> é como o V8 acelera acessos a propriedades. No primeiro acesso, descobre o offset. No segundo, já sabe onde está — sem busca. Estados: <strong>monomorphic</strong> (1 forma = ultra rápido), <strong>polymorphic</strong> (2-4 formas = ok), <strong>megamorphic</strong> (5+ formas = lento, desotimiza).",
+        regions: ["heap"]
+      }
+    ]
+  },
+
+  /* ─────────────────── 3: Event Loop & Async ─────────────────── */
+  {
+    name: "Event Loop",
+    code: [
+      { text: `console.<span class="fn">log</span>(<span class="str">"1: início"</span>);` },
+      { text: `` },
+      { text: `<span class="fn">setTimeout</span>(() <span class="op">=></span> {` },
+      { text: `    console.<span class="fn">log</span>(<span class="str">"2: timeout"</span>);` },
+      { text: `}, <span class="num">0</span>);` },
+      { text: `` },
+      { text: `Promise.<span class="fn">resolve</span>().<span class="fn">then</span>(() <span class="op">=></span> {` },
+      { text: `    console.<span class="fn">log</span>(<span class="str">"3: promise"</span>);` },
+      { text: `});` },
+      { text: `` },
+      { text: `console.<span class="fn">log</span>(<span class="str">"4: fim"</span>);` },
+    ],
+    steps: [
+      {
+        title: "console.log(\"1: início\") — síncrono",
+        desc: "Primeira linha executada. Síncrono = vai direto na Call Stack, executa, desempilha.",
+        tag: "callstack", codeIdx: 0,
+        callstack: ["log(\"1: início\")", "Global Context"],
+        heap: [], webapi: ["→ output: 1: início"], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "sync exec",
+        explain: "Código síncrono executa <strong>linha por linha</strong> na Call Stack. console.log é chamado, empilha, executa, desempilha. Simples. A saída no console já aparece: <code>1: início</code>.",
+        regions: ["callstack", "webapi"]
+      },
+      {
+        title: "setTimeout — delega para Web API",
+        desc: "setTimeout NÃO é JavaScript. É uma Web API. O callback é registrado no runtime e a Call Stack segue em frente.",
+        tag: "webapi", codeIdx: 2,
+        callstack: ["Global Context"],
+        heap: ["callback: () => log(\"2\")"],
+        webapi: ["⏱ Timer(0ms): callback"],
+        queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "delegate timer",
+        explain: "<strong>setTimeout</strong> é fornecido pelo runtime (navegador/Node), não pelo V8. Ao chamar setTimeout(fn, 0), o V8 entrega o callback para a Web API e <strong>continua executando</strong> o código seguinte imediatamente — não espera. O timer roda em paralelo, fora da thread principal.",
+        regions: ["heap", "webapi"]
+      },
+      {
+        title: "Promise.resolve().then() — microtask",
+        desc: "A Promise é resolvida imediatamente. O callback .then() vai para a Microtask Queue — que tem prioridade sobre a Task Queue.",
+        tag: "queue", codeIdx: 6,
+        callstack: ["Global Context"],
+        heap: ["callback timer", "callback promise"],
+        webapi: ["⏱ Timer(0ms): aguardando"],
+        queue: ["🔹 Microtask: log(\"3\")"],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "microtask enqueued",
+        explain: "<strong>Microtasks</strong> (Promises, queueMicrotask, MutationObserver) têm <strong>prioridade sobre macrotasks</strong> (setTimeout, setInterval, I/O). Quando a Call Stack esvaziar, o Event Loop processa TODAS as microtasks antes de qualquer macrotask. É por isso que \"3: promise\" aparece antes de \"2: timeout\".",
+        regions: ["heap", "webapi", "queue"]
+      },
+      {
+        title: "console.log(\"4: fim\") — síncrono",
+        desc: "Última linha síncrona. Executa imediatamente. O timer já terminou, mas o callback ainda espera.",
+        tag: "callstack", codeIdx: 10,
+        callstack: ["log(\"4: fim\")", "Global Context"],
+        heap: [],
+        webapi: ["✓ Timer completo → callback"],
+        queue: ["🔹 Microtask: log(\"3\")", "🔸 Macrotask: log(\"2\")"],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "sync exec",
+        explain: "O timer de 0ms já terminou — mas o callback <strong>não pode executar</strong> porque a Call Stack não está vazia. O callback do setTimeout foi movido da Web API para a <strong>Task Queue (Macrotask Queue)</strong>. O Event Loop só vai buscá-lo quando a stack esvaziar E as microtasks terminarem.",
+        regions: ["callstack", "webapi", "queue"]
+      },
+      {
+        title: "Stack vazia — Event Loop roda microtasks",
+        desc: "Call Stack esvaziou. O Event Loop primeiro executa TODAS as microtasks. O callback da Promise executa.",
+        tag: "eventloop", codeIdx: 7,
+        callstack: ["log(\"3: promise\")", "then() callback"],
+        heap: [],
+        webapi: [],
+        queue: ["🔸 Macrotask: log(\"2\")"],
+        eventloop: ["🔄 processando microtasks"],
+        engine: "ignition", engineVal: "→ microtask",
+        explain: "O <strong>Event Loop</strong> segue esta ordem: 1) Executa tudo na Call Stack. 2) Esvazia a <strong>Microtask Queue</strong> inteira (incluindo microtasks geradas durante o processamento). 3) Só então pega UMA macrotask da Task Queue. Por isso a saída é: 1→4→3→2, não 1→2→3→4.",
+        regions: ["callstack", "queue", "eventloop"]
+      },
+      {
+        title: "Event Loop pega macrotask — setTimeout",
+        desc: "Microtasks esgotadas. Agora o Event Loop pega o callback do setTimeout da Task Queue e empilha na Call Stack.",
+        tag: "eventloop", codeIdx: 3,
+        callstack: ["log(\"2: timeout\")", "setTimeout callback"],
+        heap: [],
+        webapi: [],
+        queue: ["← queue vazia"],
+        eventloop: ["🔄 processando macrotask"],
+        engine: "ignition", engineVal: "→ macrotask",
+        explain: "Ordem final de saída: <code>1: início → 4: fim → 3: promise → 2: timeout</code>. Mesmo com <code>setTimeout(fn, 0)</code>, o callback <strong>nunca</strong> executa antes de código síncrono e microtasks. O 0ms significa \"o mais cedo possível\" — não \"imediatamente\".",
+        regions: ["callstack", "queue", "eventloop"]
+      }
+    ]
+  },
+
+  /* ─────────────────── 4: V8 JIT Pipeline ─────────────────── */
+  {
+    name: "V8 JIT Pipeline",
+    code: [
+      { text: `<span class="kw">function</span> <span class="fn">quadrado</span>(x) {` },
+      { text: `    <span class="kw">return</span> x <span class="op">*</span> x;` },
+      { text: `}` },
+      { text: `` },
+      { text: `<span class="cm">// chamadas 1-99: interpretado</span>` },
+      { text: `<span class="kw">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="num">0</span>; i <span class="op"><</span> <span class="num">100</span>; i<span class="op">++</span>)` },
+      { text: `    <span class="fn">quadrado</span>(i);` },
+      { text: `` },
+      { text: `<span class="cm">// chamadas 100+: JIT otimiza</span>` },
+      { text: `<span class="kw">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="num">0</span>; i <span class="op"><</span> <span class="num">100000</span>; i<span class="op">++</span>)` },
+      { text: `    <span class="fn">quadrado</span>(i);` },
+      { text: `` },
+      { text: `<span class="cm">// tipo mudou!</span>` },
+      { text: `<span class="fn">quadrado</span>(<span class="str">"ops"</span>);  <span class="cm">// deopt!</span>` },
+    ],
+    steps: [
+      {
+        title: "Ignition interpreta bytecode",
+        desc: "Nas primeiras execuções, quadrado() roda via interpretador Ignition. Funcional, mas sem otimização.",
+        tag: "engine", codeIdx: 4,
+        callstack: ["quadrado(0)", "Global Context"],
+        heap: [], webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "bytecode · x*x",
+        explain: "O <strong>Ignition</strong> executa bytecode instrução por instrução. É como um for-loop que lê e executa cada opcode. Mais lento que código nativo, mas tem vantagem: coleta <strong>feedback de tipos</strong>. Cada vez que quadrado() roda, o Ignition registra que x foi um number.",
+        regions: ["callstack"]
+      },
+      {
+        title: "Feedback de tipos — profiling",
+        desc: "O Ignition monitora: quadrado() sempre recebe numbers. Essa informação vai para o Feedback Vector.",
+        tag: "engine", codeIdx: 6,
+        callstack: ["quadrado(42)", "loop i=42", "Global Context"],
+        heap: ["Feedback Vector:", "  quadrado: x → number (100%)"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "profiling: x=number",
+        explain: "O <strong>Feedback Vector</strong> é onde o Ignition registra os tipos observados. Após ~100 chamadas com x sempre sendo number, o V8 ganha <strong>confiança</strong> de que x será sempre number. Essa confiança é o que permite ao TurboFan gerar código otimizado.",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "TurboFan compila para código nativo",
+        desc: "quadrado() é marcada como \"hot\". O TurboFan a compila para código de máquina otimizado, assumindo x: number.",
+        tag: "engine", codeIdx: 8,
+        callstack: ["quadrado(i)", "Global Context"],
+        heap: ["Optimized Code:", "  quadrado() → x86/ARM", "  IMUL reg, reg", "  RET"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "turbofan", engineVal: "⚡ compiling native",
+        explain: "<strong>TurboFan</strong> é o compilador JIT otimizante do V8. Ele gera código de máquina <strong>especulativo</strong> — assume que x sempre será number e gera uma instrução <code>IMUL</code> nativa. Zero overhead de interpretação. Velocidade comparável a C. Mas se o tipo mudar...",
+        regions: ["heap"]
+      },
+      {
+        title: "Execução otimizada — velocidade nativa",
+        desc: "As 100.000 chamadas seguintes rodam como código nativo. A CPU executa IMUL diretamente — sem intermediário.",
+        tag: "engine", codeIdx: 10,
+        callstack: ["quadrado(i) OTIMIZADO", "Global Context"],
+        heap: ["Optimized Code ativo", "  ~100x mais rápido"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "turbofan", engineVal: "native · ~100x faster",
+        explain: "Código otimizado pelo TurboFan pode ser <strong>10-100x mais rápido</strong> que o interpretado. Além de compilar, o TurboFan faz: <strong>inlining</strong> (copia o corpo da função para o chamador), <strong>eliminação de código morto</strong>, <strong>escape analysis</strong> (evita alocações desnecessárias na heap).",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "quadrado(\"ops\") — DEOPTIMIZAÇÃO",
+        desc: "O tipo mudou! x agora é string. O código nativo assumia number. V8 é forçado a deoptimizar — volta para o Ignition.",
+        tag: "engine", codeIdx: 13,
+        callstack: ["quadrado(\"ops\")", "Global Context"],
+        heap: ["⚠ Optimized Code DESCARTADO", "Feedback Vector resetado", "  x → number|string"],
+        webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "⚠ DEOPT! bailout",
+        explain: "<strong>Deoptimização (bailout)</strong> é o preço de tipos dinâmicos. O V8 inseriu <strong>type guards</strong> no código nativo — checkpoints que verificam se x é number. Quando x é string, o guard falha → código nativo é descartado → volta para o Ignition. Isso é <strong>caro</strong>. Em código real, manter tipos consistentes é a otimização mais importante.",
+        regions: ["callstack", "heap"]
+      }
+    ]
+  },
+
+  /* ─────────────────── 5: async/await ─────────────────── */
+  {
+    name: "async/await",
+    code: [
+      { text: `<span class="kw">async function</span> <span class="fn">buscar</span>() {` },
+      { text: `    console.<span class="fn">log</span>(<span class="str">"A: antes"</span>);` },
+      { text: `    <span class="kw">const</span> data <span class="op">=</span> <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">"/api"</span>);` },
+      { text: `    console.<span class="fn">log</span>(<span class="str">"B: depois"</span>);` },
+      { text: `    <span class="kw">return</span> data;` },
+      { text: `}` },
+      { text: `` },
+      { text: `<span class="fn">buscar</span>();` },
+      { text: `console.<span class="fn">log</span>(<span class="str">"C: fora"</span>);` },
+    ],
+    steps: [
+      {
+        title: "buscar() é chamada — execução síncrona",
+        desc: "async function é chamada. Executa SINCRONAMENTE até encontrar o primeiro await.",
+        tag: "callstack", codeIdx: 7,
+        callstack: ["buscar() Context", "Global Context"],
+        heap: ["Promise (pending)"], webapi: [], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "async enter",
+        explain: "Chamar uma <strong>async function</strong> retorna uma <strong>Promise</strong> imediatamente. Mas o corpo da função começa a executar sincronamente — como qualquer função normal — até encontrar o primeiro <code>await</code>.",
+        regions: ["callstack", "heap"]
+      },
+      {
+        title: "console.log(\"A: antes\") — síncrono",
+        desc: "Código antes do await executa normalmente na Call Stack. Saída: A: antes.",
+        tag: "callstack", codeIdx: 1,
+        callstack: ["log(\"A: antes\")", "buscar() Ctx", "Global Context"],
+        heap: ["Promise (pending)"],
+        webapi: ["→ output: A: antes"], queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "sync: log A",
+        explain: "Tudo antes do <code>await</code> é síncrono. <code>console.log(\"A: antes\")</code> executa imediatamente. A saída aparece no console. A função continua até encontrar o await.",
+        regions: ["callstack", "webapi"]
+      },
+      {
+        title: "await fetch(\"/api\") — PAUSA a função",
+        desc: "await encontrado! buscar() é SUSPENSA. Seu contexto sai da Call Stack. fetch() vai para as Web APIs.",
+        tag: "webapi", codeIdx: 2,
+        callstack: ["Global Context"],
+        heap: ["Promise (pending)", "buscar() suspenso"],
+        webapi: ["🌐 fetch(\"/api\"): aguardando"],
+        queue: [],
+        eventloop: ["🔄 stack liberada"],
+        engine: "ignition", engineVal: "await → suspend",
+        explain: "<strong>await</strong> faz três coisas: 1) Inicia a operação assíncrona (fetch). 2) <strong>Suspende</strong> a execução da async function — salva seu estado. 3) <strong>Libera</strong> a Call Stack para que outro código rode. A função fica \"congelada\" na Heap, esperando a Promise resolver.",
+        regions: ["heap", "webapi", "eventloop"]
+      },
+      {
+        title: "console.log(\"C: fora\") — executa AGORA",
+        desc: "Com buscar() suspensa, a Call Stack está livre. O código DEPOIS da chamada buscar() executa imediatamente.",
+        tag: "callstack", codeIdx: 8,
+        callstack: ["log(\"C: fora\")", "Global Context"],
+        heap: ["Promise (pending)", "buscar() suspenso"],
+        webapi: ["🌐 fetch: aguardando..."],
+        queue: [],
+        eventloop: ["🔄 executando stack"],
+        engine: "ignition", engineVal: "sync: log C",
+        explain: "A saída até agora é: <code>A: antes → C: fora</code>. \"C: fora\" aparece ANTES de \"B: depois\" porque o await <strong>liberou a Call Stack</strong>. É como se buscar() dissesse: \"vou esperar o fetch, pode continuar sem mim\".",
+        regions: ["callstack", "webapi"]
+      },
+      {
+        title: "fetch resolve — callback na Microtask Queue",
+        desc: "A rede respondeu. A Promise do fetch é resolvida. A continuação de buscar() entra na Microtask Queue.",
+        tag: "queue", codeIdx: 2,
+        callstack: ["← stack vazia"],
+        heap: ["Promise (fulfilled)"],
+        webapi: ["✓ fetch completo"],
+        queue: ["🔹 Microtask: retomar buscar()"],
+        eventloop: ["🔄 checando microtasks..."],
+        engine: "ignition", engineVal: "promise resolved",
+        explain: "Quando a Promise do fetch resolve, a <strong>continuação</strong> da async function (tudo depois do await) é colocada na <strong>Microtask Queue</strong>. O Event Loop vai buscá-la assim que a Call Stack estiver vazia.",
+        regions: ["heap", "webapi", "queue", "eventloop"]
+      },
+      {
+        title: "buscar() retoma — console.log(\"B: depois\")",
+        desc: "Event Loop pega a microtask. buscar() é restaurada na Call Stack exatamente de onde parou — após o await.",
+        tag: "eventloop", codeIdx: 3,
+        callstack: ["log(\"B: depois\")", "buscar() Ctx (retomado)"],
+        heap: ["Promise (fulfilled)", "  data = Response"],
+        webapi: [], queue: ["← processada"],
+        eventloop: ["🔄 microtask executada"],
+        engine: "ignition", engineVal: "resume buscar()",
+        explain: "Saída final: <code>A: antes → C: fora → B: depois</code>. O <strong>await</strong> não bloqueia a thread — ele <strong>agenda</strong> a continuação. <code>async/await</code> é syntax sugar sobre Promises: por baixo, o V8 transforma tudo em <code>.then()</code> chains com generators internos.",
+        regions: ["callstack", "heap", "eventloop"]
+      }
+    ]
+  }
+];
+
+let currentScenario = 0;
+let currentStep = -1;
+let autoRunTimer = null;
+
+const regionKeys = ['callstack', 'heap', 'webapi', 'queue', 'eventloop'];
+const engineMap = {
+  parser: 'eng-parser',
+  ignition: 'eng-ignition',
+  turbofan: 'eng-turbofan',
+  gc: 'eng-gc'
+};
+
+function initButtons() {
+  const div = document.getElementById('scenario-buttons');
+  div.innerHTML = scenarios.map((s, i) =>
+    `<button class="scenario-btn${i===0?' active':''}" onclick="loadScenario(${i})">${s.name}</button>`
+  ).join('');
+}
+
+function loadScenario(idx) {
+  currentScenario = idx;
+  currentStep = -1;
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  document.querySelectorAll('.scenario-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  renderCode();
+  renderSteps();
+  resetRegions();
+  updateProgress();
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Pronto</h3>
+    <p>Clique em <strong>Passo a passo</strong> para começar: <strong>${scenarios[idx].name}</strong></p>
+  `;
+  document.getElementById('engine-val').textContent = '';
+  document.querySelectorAll('.engine-layer').forEach(l => l.classList.remove('active-layer'));
+}
+
+function renderCode() {
+  const s = scenarios[currentScenario];
+  document.getElementById('code-display').innerHTML = s.code.map((l, i) =>
+    `<span class="code-line" id="cl-${i}">${l.text || '&nbsp;'}</span>`
+  ).join('\n');
+}
+
+function renderSteps() {
+  const s = scenarios[currentScenario];
+  document.getElementById('steps-list').innerHTML = s.steps.map((step, i) => `
+    <div class="step" id="step-${i}" onclick="jumpToStep(${i})">
+      <div class="step-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="step-content">
+        <div class="step-title">${step.title}</div>
+        <div class="step-desc" style="display:none">${step.desc}</div>
+        <span class="step-tag tag-${step.tag}" style="display:none">${step.tag.toUpperCase()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function resetRegions() {
+  regionKeys.forEach(r => {
+    document.getElementById(`${r}-items`).innerHTML =
+      `<div style="font-size:0.56rem;color:var(--text-dim);margin-top:4px">aguardando...</div>`;
+    document.getElementById(`reg-${r}`).classList.remove('active');
+  });
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+}
+
+function updateProgress() {
+  const s = scenarios[currentScenario];
+  const pct = currentStep < 0 ? 0 : ((currentStep + 1) / s.steps.length) * 100;
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function applyStep(idx) {
+  const s = scenarios[currentScenario];
+  const step = s.steps[idx];
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+  if (step.codeIdx >= 0) {
+    const cl = document.getElementById(`cl-${step.codeIdx}`);
+    if (cl) cl.classList.add('hl');
+  }
+
+  // Steps UI
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.toggle('active-step', i === idx);
+    const desc = el.querySelector('.step-desc');
+    const tag = el.querySelector('.step-tag');
+    desc.style.display = i === idx ? 'block' : 'none';
+    tag.style.display = i === idx ? 'inline-block' : 'none';
+  });
+
+  // Regions
+  regionKeys.forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const region = document.getElementById(`reg-${r}`);
+    const items = step[r];
+    if (items && items.length > 0) {
+      el.innerHTML = items.map(it =>
+        `<div class="mem-item ${r}-item visible">${it}</div>`
+      ).join('');
+      region.classList.add('active');
+    } else {
+      el.innerHTML = `<div style="font-size:0.56rem;color:var(--text-dim);margin-top:4px">vazio</div>`;
+      region.classList.remove('active');
+    }
+  });
+
+  // Engine
+  document.querySelectorAll('.engine-layer').forEach(l => l.classList.remove('active-layer'));
+  if (step.engine && engineMap[step.engine]) {
+    document.getElementById(engineMap[step.engine]).classList.add('active-layer');
+  }
+  document.getElementById('engine-val').textContent = step.engineVal || '';
+
+  // Explanation
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>💡 passo ${idx + 1} — ${step.title}</h3>
+    <p>${step.explain}</p>
+  `;
+
+  updateProgress();
+}
+
+function runNext() {
+  const s = scenarios[currentScenario];
+  currentStep++;
+  if (currentStep >= s.steps.length) {
+    currentStep = s.steps.length - 1;
+    document.getElementById('explanation-box').innerHTML = `
+      <h3>✅ Simulação concluída</h3>
+      <p>Todos os passos foram executados. Clique em <strong>Resetar</strong> para recomeçar ou escolha outro cenário.</p>
+    `;
+    return;
+  }
+  applyStep(currentStep);
+}
+
+function runAll() {
+  resetAll();
+  const s = scenarios[currentScenario];
+  let i = 0;
+  function next() {
+    if (i >= s.steps.length) return;
+    currentStep = i;
+    applyStep(i);
+    i++;
+    autoRunTimer = setTimeout(next, 1400);
+  }
+  next();
+}
+
+function resetAll() {
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  currentStep = -1;
+  resetRegions();
+  renderCode();
+  renderSteps();
+  updateProgress();
+  document.getElementById('engine-val').textContent = '';
+  document.querySelectorAll('.engine-layer').forEach(l => l.classList.remove('active-layer'));
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Resetado</h3>
+    <p>Clique em <strong>Passo a passo</strong> para iniciar a simulação.</p>
+  `;
+}
+
+function jumpToStep(idx) {
+  currentStep = idx;
+  applyStep(idx);
+}
+
+// Init
+initButtons();
+loadScenario(0);
+</script>
+</body>
+</html>

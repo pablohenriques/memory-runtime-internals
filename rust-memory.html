@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust — Memória & Ownership</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0a0e;
+    --bg2: #14101a;
+    --bg3: #1c1626;
+    --border: #2d2240;
+    --cpu: #ff6b35;
+    --cpu-dim: #7a3318;
+    --own: #f59e0b;
+    --own-dim: #7a5010;
+    --stack: #06b6d4;
+    --stack-dim: #0e5c6e;
+    --heap: #e879f9;
+    --heap-dim: #6b2f78;
+    --stc: #34d399;
+    --stc-dim: #1a6b4a;
+    --drop: #f87171;
+    --drop-dim: #7a2828;
+    --text: #e8e0f0;
+    --text-dim: #7a6f8a;
+    --accent: #f97316;
+    --glow: 0 0 20px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    opacity: 0.4;
+  }
+
+  .main {
+    position: relative; z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .header .rust-badge {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 4px 14px;
+    background: rgba(249,115,22,0.1);
+    border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+  }
+
+  /* Scenario selector */
+  .scenarios {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .scenario-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    transition: all 0.2s;
+  }
+  .scenario-btn:hover { border-color: var(--accent); color: var(--text); }
+  .scenario-btn.active {
+    background: var(--accent);
+    color: #0c0a0e;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Architecture grid */
+  .arch {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: auto auto;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  /* CPU Box */
+  .cpu-box {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid var(--cpu-dim);
+    border-radius: 12px;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .box-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .box-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .cpu-box .box-title { color: var(--cpu); }
+
+  .cpu-layer {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    transition: all 0.3s;
+  }
+  .cpu-layer .layer-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .cpu-layer .layer-info {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+  .cpu-layer.active-layer {
+    border-color: var(--cpu);
+    box-shadow: 0 0 12px rgba(255,107,53,0.3);
+  }
+  .cpu-layer.active-layer .layer-name { color: var(--cpu); }
+
+  /* RAM Box */
+  .ram-box {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    background: var(--bg2);
+    border: 1px solid rgba(6,182,212,0.2);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .ram-box .box-title { color: #60a5fa; margin-bottom: 16px; }
+
+  .rust-container {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .rust-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .rust-regions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+  }
+
+  .region {
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .region::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .region.active::before { opacity: 1; }
+
+  .region-stack { background: rgba(6,182,212,0.05); }
+  .region-stack.active { border-color: var(--stack); box-shadow: 0 0 16px rgba(6,182,212,0.25); }
+  .region-stack::before { background: rgba(6,182,212,0.04); }
+
+  .region-heap { background: rgba(232,121,249,0.05); }
+  .region-heap.active { border-color: var(--heap); box-shadow: 0 0 16px rgba(232,121,249,0.25); }
+  .region-heap::before { background: rgba(232,121,249,0.04); }
+
+  .region-stc { background: rgba(52,211,153,0.05); }
+  .region-stc.active { border-color: var(--stc); box-shadow: 0 0 16px rgba(52,211,153,0.25); }
+  .region-stc::before { background: rgba(52,211,153,0.04); }
+
+  .region-drop { background: rgba(248,113,113,0.05); }
+  .region-drop.active { border-color: var(--drop); box-shadow: 0 0 16px rgba(248,113,113,0.25); }
+  .region-drop::before { background: rgba(248,113,113,0.04); }
+
+  .region-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .region-stack .region-name { color: var(--stack); }
+  .region-heap .region-name { color: var(--heap); }
+  .region-stc .region-name { color: var(--stc); }
+  .region-drop .region-name { color: var(--drop); }
+
+  .region-items { display: flex; flex-direction: column; gap: 4px; min-height: 80px; }
+
+  .mem-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: all 0.4s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mem-item.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .stack-item { background: rgba(6,182,212,0.1); border-color: rgba(6,182,212,0.2); color: var(--stack); }
+  .heap-item { background: rgba(232,121,249,0.1); border-color: rgba(232,121,249,0.2); color: var(--heap); }
+  .stc-item { background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.2); color: var(--stc); }
+  .drop-item { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.2); color: var(--drop); }
+
+  @keyframes pulse-item {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.8); }
+  }
+
+  /* Flow steps */
+  .flow-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .flow-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .step:hover { border-color: var(--accent); }
+  .step.active-step {
+    border-color: var(--accent);
+    background: rgba(249,115,22,0.06);
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 24px;
+    padding-top: 1px;
+  }
+  .step-content { flex: 1; }
+  .step-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+  .step-desc {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .step-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+    margin-top: 4px;
+    display: inline-block;
+  }
+  .tag-cpu { background: rgba(255,107,53,0.15); color: var(--cpu); border: 1px solid rgba(255,107,53,0.3); }
+  .tag-stack { background: rgba(6,182,212,0.15); color: var(--stack); border: 1px solid rgba(6,182,212,0.3); }
+  .tag-heap { background: rgba(232,121,249,0.15); color: var(--heap); border: 1px solid rgba(232,121,249,0.3); }
+  .tag-stc { background: rgba(52,211,153,0.15); color: var(--stc); border: 1px solid rgba(52,211,153,0.3); }
+  .tag-drop { background: rgba(248,113,113,0.15); color: var(--drop); border: 1px solid rgba(248,113,113,0.3); }
+  .tag-own { background: rgba(245,158,11,0.15); color: var(--own); border: 1px solid rgba(245,158,11,0.3); }
+
+  /* Code panel */
+  .code-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .code-panel .flow-title { margin-bottom: 12px; }
+  .code-block {
+    background: #060810;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .code-line { display: block; transition: all 0.3s; border-radius: 3px; padding: 1px 4px; }
+  .code-line.hl { background: rgba(249,115,22,0.12); color: var(--accent); }
+  .kw { color: #c792ea; }
+  .fn { color: #82aaff; }
+  .str { color: #c3e88d; }
+  .num { color: #f78c6c; }
+  .cm { color: #546e7a; }
+  .tp { color: var(--stack); }
+  .mc { color: #ffcb6b; }
+  .lf { color: #f07178; }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .ctrl-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.primary {
+    background: var(--accent);
+    color: #0c0a0e;
+    border-color: var(--accent);
+  }
+  .ctrl-btn.primary:hover { filter: brightness(1.1); }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Explanation box */
+  .explanation {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .explanation h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .explanation p {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .explanation p strong { color: var(--text); }
+  .explanation p code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    background: rgba(249,115,22,0.1);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  /* Progress indicator */
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  @media (max-width: 768px) {
+    .arch { grid-template-columns: 1fr; }
+    .cpu-box { grid-column: 1; grid-row: auto; }
+    .ram-box { grid-column: 1; grid-row: auto; }
+    .rust-regions { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="main">
+
+  <div class="header">
+    <h1>Rust — <span>Memória & Ownership</span></h1>
+    <p>Visualize como seu código Rust percorre CPU, Stack, Heap e o sistema de Ownership</p>
+    <div class="rust-badge">sem runtime · sem GC · zero-cost abstractions</div>
+  </div>
+
+  <!-- Scenario Selector -->
+  <div class="scenarios" id="scenario-buttons"></div>
+
+  <!-- Progress -->
+  <div class="progress-bar">
+    <div class="progress-fill" id="progress" style="width:0%"></div>
+  </div>
+
+  <!-- Architecture Visualization -->
+  <div class="arch">
+
+    <!-- CPU -->
+    <div class="cpu-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        CPU
+      </div>
+      <div class="cpu-layer" id="cpu-reg">
+        <div class="layer-name" style="color:var(--cpu)">Registradores</div>
+        <div class="layer-info">~bytes · ~0.3ns</div>
+        <div id="cpu-reg-val" style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent);margin-top:6px;min-height:16px"></div>
+      </div>
+      <div class="cpu-layer" id="cpu-l1">
+        <div class="layer-name">Cache L1</div>
+        <div class="layer-info">~64 KB · ~1ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l2">
+        <div class="layer-name">Cache L2</div>
+        <div class="layer-info">~256 KB · ~4ns</div>
+      </div>
+      <div class="cpu-layer" id="cpu-l3">
+        <div class="layer-name">Cache L3</div>
+        <div class="layer-info">~8 MB · ~10ns</div>
+      </div>
+      <div style="margin-top:auto;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--text-dim);border-top:1px solid var(--border);padding-top:10px;line-height:1.6">
+        BUS → RAM ~100ns
+      </div>
+    </div>
+
+    <!-- RAM / Rust Process -->
+    <div class="ram-box">
+      <div class="box-title">
+        <div class="dot"></div>
+        RAM — Processo Nativo (sem runtime)
+      </div>
+
+      <div class="rust-container">
+        <div class="rust-title">
+          ⚙ Rust Compiled Binary
+        </div>
+        <div class="rust-regions">
+
+          <div class="region region-stack" id="reg-stack">
+            <div class="region-name">Stack</div>
+            <div class="region-items" id="stack-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando execução...</div>
+            </div>
+          </div>
+
+          <div class="region region-heap" id="reg-heap">
+            <div class="region-name">Heap</div>
+            <div class="region-items" id="heap-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">aguardando alocação...</div>
+            </div>
+          </div>
+
+          <div class="region region-stc" id="reg-stc">
+            <div class="region-name">Static / .rodata</div>
+            <div class="region-items" id="stc-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">dados estáticos...</div>
+            </div>
+          </div>
+
+          <div class="region region-drop" id="reg-drop">
+            <div class="region-name">Drop / Dealloc</div>
+            <div class="region-items" id="drop-items">
+              <div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">sem GC — determinístico</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code + Steps side by side -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+
+    <div class="code-panel">
+      <div class="flow-title">// código rust</div>
+      <div class="code-block" id="code-display">
+        <span class="code-line cm">// selecione um cenário acima</span>
+        <span class="code-line cm">// e pressione Executar</span>
+      </div>
+    </div>
+
+    <div class="flow-panel">
+      <div class="flow-title">fluxo de execução</div>
+      <div class="steps-list" id="steps-list"></div>
+    </div>
+
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="runNext()" id="btn-run">▶ Executar passo a passo</button>
+    <button class="ctrl-btn" onclick="runAll()">⚡ Executar tudo</button>
+    <button class="ctrl-btn" onclick="resetAll()">↺ Resetar</button>
+  </div>
+
+  <!-- Explanation -->
+  <div class="explanation" id="explanation-box">
+    <h3>📌 Como usar</h3>
+    <p>Escolha um <strong>cenário</strong> no topo, depois clique em <strong>Executar passo a passo</strong> para ver como cada linha de código é processada pelo Rust — o que vai para a Stack, o que vai para a Heap, como o Ownership controla tudo e quando o Drop é chamado. <strong>Sem Garbage Collector</strong> — tudo é decidido em tempo de compilação.</p>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cpu)"></div>CPU / Execução</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--stack)"></div>Stack (frames, primitivos)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--heap)"></div>Heap (Box, Vec, String)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--stc)"></div>Static / .rodata</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--drop)"></div>Drop (destruição determinística)</div>
+  </div>
+
+</div>
+
+<script>
+const scenarios = [
+  {
+    name: "let x = 42",
+    code: [
+      { text: `<span class="kw">fn</span> <span class="fn">main</span>() {` },
+      { text: `    <span class="kw">let</span> x: <span class="tp">i32</span> = <span class="num">42</span>;      <span class="cm">// primitivo</span>` },
+      { text: `    <span class="kw">let</span> y: <span class="tp">i32</span> = x * <span class="num">2</span>;    <span class="cm">// operação</span>` },
+      { text: `    <span class="fn">println!</span>(<span class="str">"{}"</span>, y);   <span class="cm">// saída</span>` },
+      { text: `}` },
+    ],
+    steps: [
+      {
+        title: "Binário nativo inicia — carrega main()",
+        desc: "O SO carrega o binário compilado. Nenhuma VM, nenhum interpretador. A CPU executa código de máquina diretamente.",
+        tag: "stack", codeIdx: 0,
+        stack: ["Frame: main()"],
+        heap: [], stc: ["fmt string: \"{}\""], drop: [],
+        cpu: "l1", cpuVal: "init frame",
+        explain: "<strong>Diferente da JVM</strong>, Rust não tem runtime. O compilador (rustc + LLVM) gera código de máquina nativo. Quando você executa, o SO carrega o binário direto na RAM — sem JIT, sem interpretador, sem Garbage Collector.",
+        regions: ["stack", "stc"]
+      },
+      {
+        title: "let x: i32 = 42",
+        desc: "i32 tem tamanho fixo (4 bytes). O valor 42 vai direto para o frame na Stack. Rust implementa o trait Copy para i32.",
+        tag: "stack", codeIdx: 1,
+        stack: ["Frame: main()", "  x: i32 = 42 [owner]"],
+        heap: [], stc: ["fmt string: \"{}\""], drop: [],
+        cpu: "reg", cpuVal: "42",
+        explain: "<strong>Tipos primitivos</strong> (i32, f64, bool, char) implementam o trait <code>Copy</code>. Isso significa que quando você faz <code>let y = x</code>, o valor é <strong>copiado bit a bit</strong> — não movido. Eles vivem inteiramente na Stack, sem alocação na Heap.",
+        regions: ["stack", "cpu-reg"]
+      },
+      {
+        title: "let y: i32 = x * 2",
+        desc: "A CPU carrega x dos registradores, multiplica por 2. Como i32 é Copy, x continua válido após o uso.",
+        tag: "cpu", codeIdx: 2,
+        stack: ["Frame: main()", "  x: i32 = 42 [owner]", "  y: i32 = 84 [owner]"],
+        heap: [], stc: ["fmt string: \"{}\""], drop: [],
+        cpu: "reg", cpuVal: "x=42 → 84",
+        explain: "A operação <strong>x * 2</strong> vira uma instrução <code>IMUL</code> no binário. LLVM pode otimizar isso em tempo de compilação — se o valor for constante, ele pode calcular 84 diretamente e eliminar a multiplicação (constant folding).",
+        regions: ["stack", "cpu-reg"]
+      },
+      {
+        title: "println!(\"{}\", y) — macro expandida",
+        desc: "println! é uma macro, não uma função. O compilador a expande em tempo de compilação para chamadas ao sistema de formatação.",
+        tag: "stc", codeIdx: 3,
+        stack: ["Frame: main()", "  x: i32 = 42", "  y: i32 = 84", "  Frame: fmt (temp)"],
+        heap: [], stc: ["fmt string: \"{}\"", "stdout buffer"], drop: [],
+        cpu: "l1", cpuVal: "write syscall",
+        explain: "<strong>Macros</strong> em Rust são expandidas em tempo de compilação. <code>println!</code> gera código que formata y como texto e faz uma chamada de sistema (syscall write) para stdout. A string de formato <code>\"{}\"</code> vive na seção <strong>.rodata</strong> do binário — é somente leitura.",
+        regions: ["stack", "stc"]
+      },
+      {
+        title: "} — fim do escopo, Stack desempilha",
+        desc: "x e y são primitivos na Stack. O frame é destruído automaticamente quando main() termina. Nenhum Drop é necessário.",
+        tag: "drop", codeIdx: 4,
+        stack: ["← frame main() destruído"],
+        heap: [], stc: ["fmt string: \"{}\""], drop: ["i32 não precisa de Drop", "Stack limpa automaticamente"],
+        cpu: "l1", cpuVal: "ret",
+        explain: "Para tipos <code>Copy</code> como i32, não existe <code>Drop</code> — eles simplesmente deixam de existir quando o frame é desempilhado. É a forma mais eficiente de gerenciar memória: <strong>zero overhead</strong>. O Stack Pointer simplesmente volta para a posição anterior.",
+        regions: ["stack", "drop"]
+      }
+    ]
+  },
+  {
+    name: "String (Heap)",
+    code: [
+      { text: `<span class="kw">fn</span> <span class="fn">main</span>() {` },
+      { text: `    <span class="kw">let</span> s1 = <span class="tp">String</span>::<span class="fn">from</span>(<span class="str">"olá Rust"</span>);` },
+      { text: `    <span class="kw">let</span> len = s1.<span class="fn">len</span>();` },
+      { text: `    <span class="fn">println!</span>(<span class="str">"{}: {} bytes"</span>, s1, len);` },
+      { text: `} <span class="cm">// s1 é destruída aqui (Drop)</span>` },
+    ],
+    steps: [
+      {
+        title: "main() inicia — frame criado",
+        desc: "O frame de main() é alocado na Stack. O literal \"olá Rust\" já existe na seção .rodata do binário.",
+        tag: "stack", codeIdx: 0,
+        stack: ["Frame: main()"],
+        heap: [], stc: ["literal: \"olá Rust\"", "fmt: \"{}: {} bytes\""], drop: [],
+        cpu: "l1", cpuVal: "init frame",
+        explain: "<strong>String literals</strong> como <code>\"olá Rust\"</code> são do tipo <code>&str</code> — uma referência a dados na seção somente leitura do binário (.rodata). Eles existem durante toda a execução do programa e não precisam de alocação.",
+        regions: ["stack", "stc"]
+      },
+      {
+        title: "String::from(\"olá Rust\") — alocação na Heap",
+        desc: "String::from copia os bytes do literal para a Heap. Na Stack fica a struct String: {ptr, len, capacity}.",
+        tag: "heap", codeIdx: 1,
+        stack: ["Frame: main()", "  s1: String {", "    ptr: 0x7f3a...", "    len: 10", "    cap: 10", "  } [OWNER]"],
+        heap: ["0x7f3a: [o,l,á, ,R,u,s,t]", "  10 bytes alocados"],
+        stc: ["literal: \"olá Rust\""], drop: [],
+        cpu: "l2", cpuVal: "alloc 10 bytes",
+        explain: "<strong>String</strong> é uma struct com 3 campos na Stack: <code>ptr</code> (ponteiro para a Heap), <code>len</code> (tamanho atual) e <code>capacity</code> (tamanho alocado). Os bytes reais ficam na Heap, alocados via <code>alloc::alloc()</code>. s1 é o <strong>owner</strong> dessa memória.",
+        regions: ["stack", "heap", "stc"]
+      },
+      {
+        title: "s1.len() — leitura sem alocação",
+        desc: "len() simplesmente lê o campo len da struct na Stack. Nenhuma alocação, nenhum acesso à Heap.",
+        tag: "stack", codeIdx: 2,
+        stack: ["Frame: main()", "  s1: String {ptr,len:10,cap}", "  len: usize = 10 [owner]"],
+        heap: ["0x7f3a: [o,l,á, ,R,u,s,t]"],
+        stc: ["literal: \"olá Rust\""], drop: [],
+        cpu: "reg", cpuVal: "len=10",
+        explain: "<code>len()</code> é uma chamada <strong>inline</strong> — o LLVM substitui pela leitura direta do campo na Stack. Zero overhead. Não precisa seguir o ponteiro até a Heap. Essa é a filosofia Rust: <strong>you don't pay for what you don't use</strong>.",
+        regions: ["stack"]
+      },
+      {
+        title: "println! — s1 emprestada temporariamente",
+        desc: "println! recebe &s1 (referência). Ownership não muda. É um empréstimo (borrow) imutável e temporário.",
+        tag: "stc", codeIdx: 3,
+        stack: ["Frame: main()", "  s1: String {ptr,len,cap}", "  len: usize = 10", "  Frame: fmt {&s1, &len}"],
+        heap: ["0x7f3a: [o,l,á, ,R,u,s,t]"],
+        stc: ["fmt: \"{}: {} bytes\""], drop: [],
+        cpu: "l1", cpuVal: "fmt + write",
+        explain: "<strong>Borrowing</strong>: println! recebe <code>&s1</code> — uma referência imutável. s1 continua sendo o owner. O borrow checker garante em tempo de compilação que ninguém modifica s1 enquanto println! a lê. Tudo verificado antes de executar.",
+        regions: ["stack", "heap", "stc"]
+      },
+      {
+        title: "} — Drop chamado em s1 (Heap liberada)",
+        desc: "Fim do escopo. O compilador insere automaticamente a chamada a Drop::drop() para s1. A memória da Heap é devolvida ao allocator.",
+        tag: "drop", codeIdx: 4,
+        stack: ["← frame main() destruído"],
+        heap: ["← 0x7f3a: LIBERADO"],
+        stc: ["literal: \"olá Rust\""],
+        drop: ["Drop::drop(s1) chamado", "alloc::dealloc(ptr, 10)", "memória devolvida ao OS"],
+        cpu: "l2", cpuVal: "dealloc",
+        explain: "<strong>Drop</strong> é o destrutor do Rust. Quando s1 sai de escopo, o compilador insere automaticamente <code>Drop::drop(&mut self)</code>. Para String, isso chama <code>dealloc()</code> para liberar a memória da Heap. É <strong>determinístico</strong> — acontece exatamente quando o escopo fecha, sem GC, sem pausas imprevisíveis.",
+        regions: ["drop", "heap"]
+      }
+    ]
+  },
+  {
+    name: "Ownership & Move",
+    code: [
+      { text: `<span class="kw">fn</span> <span class="fn">main</span>() {` },
+      { text: `    <span class="kw">let</span> s1 = <span class="tp">String</span>::<span class="fn">from</span>(<span class="str">"Rust"</span>);` },
+      { text: `    <span class="kw">let</span> s2 = s1;  <span class="cm">// MOVE! s1 invalidada</span>` },
+      { text: `    <span class="cm">// println!("{}", s1);  ← ERRO de compilação!</span>` },
+      { text: `    <span class="fn">println!</span>(<span class="str">"{}"</span>, s2);` },
+      { text: `}` },
+    ],
+    steps: [
+      {
+        title: "String::from(\"Rust\") — s1 é owner",
+        desc: "String aloca na Heap. s1 possui (owns) essa memória. Apenas 1 owner por vez — regra fundamental do Rust.",
+        tag: "heap", codeIdx: 1,
+        stack: ["Frame: main()", "  s1: String {", "    ptr: 0xab12", "    len: 4, cap: 4", "  } ✅ OWNER"],
+        heap: ["0xab12: [R,u,s,t]"],
+        stc: ["literal: \"Rust\""], drop: [],
+        cpu: "l2", cpuVal: "alloc 4 bytes",
+        explain: "A regra #1 do Ownership: <strong>cada valor tem exatamente um owner</strong>. Quando s1 é criado, ele é o owner da memória na Heap. Ninguém mais pode liberar essa memória — apenas s1.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "let s2 = s1 — MOVE semântico",
+        desc: "s1 é MOVIDO para s2. Os bytes da struct são copiados na Stack, mas o ponteiro para a Heap é o mesmo. s1 é INVALIDADA.",
+        tag: "own", codeIdx: 2,
+        stack: ["Frame: main()", "  s1: ❌ MOVIDO (inacessível)", "  s2: String {", "    ptr: 0xab12", "    len: 4, cap: 4", "  } ✅ OWNER"],
+        heap: ["0xab12: [R,u,s,t]", "  (agora pertence a s2)"],
+        stc: [], drop: [],
+        cpu: "reg", cpuVal: "move ptr",
+        explain: "<strong>Move semântico</strong>: String não implementa <code>Copy</code>. Quando fazemos <code>let s2 = s1</code>, a ownership é <strong>transferida</strong>. Na prática, os 24 bytes da struct (ptr + len + cap) são copiados na Stack, mas s1 é marcada como inválida. O compilador garante que você nunca mais use s1.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "println!(\"{}\", s1) — ERRO de compilação!",
+        desc: "O borrow checker detecta que s1 foi movida. Esse código NÃO COMPILA. O erro é detectado em tempo de compilação, não em runtime.",
+        tag: "own", codeIdx: 3,
+        stack: ["Frame: main()", "  s1: ❌ MOVIDO", "  s2: String ✅ OWNER"],
+        heap: ["0xab12: [R,u,s,t]"],
+        stc: [],
+        drop: ["⚠ ERRO DE COMPILAÇÃO:", "use of moved value: `s1`", "value moved here: let s2 = s1"],
+        cpu: "l1", cpuVal: "⛔ compile error",
+        explain: "Esse é o poder do <strong>Borrow Checker</strong>. Em C/C++, isso seria um <strong>use-after-free</strong> — um bug de segurança gravíssimo. Em Java, o GC impediria isso mantendo a memória viva (com custo de performance). Em Rust, o compilador simplesmente <strong>não deixa compilar</strong>. Zero custo em runtime.",
+        regions: ["drop"]
+      },
+      {
+        title: "println!(\"{}\", s2) — s2 é o owner válido",
+        desc: "s2 é o owner legítimo. O println! faz um borrow imutável (&s2) — válido porque s2 existe e ninguém mais a modifica.",
+        tag: "stack", codeIdx: 4,
+        stack: ["Frame: main()", "  s2: String ✅ OWNER", "  Frame: fmt {&s2}"],
+        heap: ["0xab12: [R,u,s,t]"],
+        stc: ["fmt: \"{}\""], drop: [],
+        cpu: "l1", cpuVal: "fmt + write",
+        explain: "s2 é o owner válido da String. <code>println!</code> faz um <strong>&borrow</strong> temporário — não toma ownership. Após println! terminar, s2 continua sendo o owner.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "} — apenas s2 é dropada",
+        desc: "Fim do escopo. Drop é chamado apenas para s2 (o owner). s1 já foi invalidada — não tem Drop duplo.",
+        tag: "drop", codeIdx: 5,
+        stack: ["← frame destruído"],
+        heap: ["← 0xab12: LIBERADO"],
+        stc: [],
+        drop: ["Drop::drop(s2) ✅", "s1 já foi movida — sem Drop", "NUNCA double-free"],
+        cpu: "l2", cpuVal: "dealloc",
+        explain: "O sistema de ownership garante que <strong>cada alocação é liberada exatamente uma vez</strong>. Como s1 foi movida para s2, apenas s2 tem o Drop. Isso é impossível em C (double-free é um bug comum) e custoso em Java (GC precisa rastrear todas as referências).",
+        regions: ["drop", "heap"]
+      }
+    ]
+  },
+  {
+    name: "Borrowing (&ref)",
+    code: [
+      { text: `<span class="kw">fn</span> <span class="fn">calcular_len</span>(s: <span class="tp">&String</span>) -> <span class="tp">usize</span> {` },
+      { text: `    s.<span class="fn">len</span>()` },
+      { text: `}` },
+      { text: `` },
+      { text: `<span class="kw">fn</span> <span class="fn">main</span>() {` },
+      { text: `    <span class="kw">let</span> s1 = <span class="tp">String</span>::<span class="fn">from</span>(<span class="str">"borrowing"</span>);` },
+      { text: `    <span class="kw">let</span> len = <span class="fn">calcular_len</span>(&s1);` },
+      { text: `    <span class="fn">println!</span>(<span class="str">"{} tem {} bytes"</span>, s1, len);` },
+      { text: `}` },
+    ],
+    steps: [
+      {
+        title: "String::from(\"borrowing\") — s1 é owner",
+        desc: "Alocação na Heap: 9 bytes. s1 é a dona exclusiva dessa memória.",
+        tag: "heap", codeIdx: 5,
+        stack: ["Frame: main()", "  s1: String {", "    ptr: 0xcc44", "    len: 9, cap: 9", "  } ✅ OWNER"],
+        heap: ["0xcc44: [b,o,r,r,o,w,i,n,g]"],
+        stc: ["literal: \"borrowing\""], drop: [],
+        cpu: "l2", cpuVal: "alloc 9 bytes",
+        explain: "A String é criada e s1 é o owner. A questão agora é: como passar essa String para uma função <strong>sem perder a ownership</strong>?",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "&s1 — referência criada (borrow imutável)",
+        desc: "& cria uma referência. É um ponteiro fino de 8 bytes na Stack que aponta para s1. Ownership NÃO é transferida.",
+        tag: "own", codeIdx: 6,
+        stack: ["Frame: main()", "  s1: String ✅ OWNER", "  ──────────────────────", "  Frame: calcular_len()", "  s: &String → aponta p/ s1"],
+        heap: ["0xcc44: [b,o,r,r,o,w,i,n,g]"],
+        stc: [], drop: [],
+        cpu: "reg", cpuVal: "&s1 → ptr",
+        explain: "<strong>Referência (&)</strong> é um <em>borrow</em> — empréstimo. O parâmetro <code>s: &String</code> recebe um ponteiro de 8 bytes que aponta para s1 na Stack do caller. s1 continua sendo o owner. O borrow checker garante em tempo de compilação: enquanto o borrow existir, s1 não pode ser modificada ou movida.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "s.len() — acesso via referência",
+        desc: "s é desreferenciado automaticamente. Lê o campo len da struct String sem seguir o ponteiro até a Heap.",
+        tag: "cpu", codeIdx: 1,
+        stack: ["Frame: main()", "  s1: String ✅ OWNER", "  ──────────────────────", "  Frame: calcular_len()", "  s: &String", "  retorno: usize = 9"],
+        heap: ["0xcc44: [b,o,r,r,o,w,i,n,g]"],
+        stc: [], drop: [],
+        cpu: "reg", cpuVal: "len=9",
+        explain: "Rust faz <strong>auto-deref</strong>: <code>s.len()</code> é equivalente a <code>(*s).len()</code>. O LLVM provavelmente faz <strong>inline</strong> de calcular_len() inteira — em runtime, pode virar apenas uma leitura de campo. Zero overhead.",
+        regions: ["stack"]
+      },
+      {
+        title: "Retorno — borrow encerrado, s1 livre",
+        desc: "calcular_len() retorna. A referência &s1 morre. s1 volta a ser totalmente acessível.",
+        tag: "stack", codeIdx: 7,
+        stack: ["Frame: main()", "  s1: String ✅ OWNER (livre)", "  len: usize = 9"],
+        heap: ["0xcc44: [b,o,r,r,o,w,i,n,g]"],
+        stc: ["fmt: \"{} tem {} bytes\""], drop: [],
+        cpu: "l1", cpuVal: "fmt + write",
+        explain: "O borrow tem um <strong>lifetime</strong> — ele dura exatamente enquanto a função que recebeu a referência está ativa. Quando calcular_len() retorna, o borrow termina e s1 pode ser usada normalmente em println!. Tudo verificado em compilação.",
+        regions: ["stack", "heap", "stc"]
+      },
+      {
+        title: "} — Drop de s1, Heap liberada",
+        desc: "s1 sai de escopo. Drop é chamado. Os 9 bytes na Heap são devolvidos ao allocator.",
+        tag: "drop", codeIdx: 8,
+        stack: ["← frames destruídos"],
+        heap: ["← 0xcc44: LIBERADO"],
+        stc: [],
+        drop: ["Drop::drop(s1)", "dealloc(ptr, 9)", "borrow já encerrado ✅"],
+        cpu: "l2", cpuVal: "dealloc",
+        explain: "Borrowing permite <strong>reutilizar dados sem copiar e sem perder ownership</strong>. Comparação: em Java, você passaria uma referência GC-gerenciada (custo de rastreamento). Em C, você passaria um ponteiro cru (risco de dangling pointer). Em Rust, o compilador garante segurança com <strong>zero custo em runtime</strong>.",
+        regions: ["drop", "heap"]
+      }
+    ]
+  },
+  {
+    name: "Vec<T> + lifetime",
+    code: [
+      { text: `<span class="kw">fn</span> <span class="fn">main</span>() {` },
+      { text: `    <span class="kw">let mut</span> v: <span class="tp">Vec</span><<span class="tp">i32</span>> = <span class="tp">Vec</span>::<span class="fn">new</span>();` },
+      { text: `    v.<span class="fn">push</span>(<span class="num">10</span>);` },
+      { text: `    v.<span class="fn">push</span>(<span class="num">20</span>);` },
+      { text: `    v.<span class="fn">push</span>(<span class="num">30</span>);` },
+      { text: `    <span class="kw">let</span> primeiro = &v[<span class="num">0</span>];` },
+      { text: `    <span class="cm">// v.push(40); ← ERRO! borrow imutável ativo</span>` },
+      { text: `    <span class="fn">println!</span>(<span class="str">"primeiro: {}"</span>, primeiro);` },
+      { text: `} <span class="cm">// v é dropado, Heap liberada</span>` },
+    ],
+    steps: [
+      {
+        title: "Vec::new() — struct vazia na Stack",
+        desc: "Vec inicia sem alocar Heap. Internamente: ptr = endereço inválido, len = 0, cap = 0.",
+        tag: "stack", codeIdx: 1,
+        stack: ["Frame: main()", "  v: Vec<i32> {", "    ptr: dangling", "    len: 0, cap: 0", "  } ✅ OWNER"],
+        heap: [], stc: [], drop: [],
+        cpu: "reg", cpuVal: "Vec::new()",
+        explain: "<code>Vec::new()</code> é uma <strong>zero-allocation</strong> operation — não aloca nada na Heap até o primeiro push. A struct na Stack tem 24 bytes (ptr + len + cap). Isso é uma otimização deliberada do Rust.",
+        regions: ["stack"]
+      },
+      {
+        title: "v.push(10) — primeira alocação",
+        desc: "Primeiro push: Vec aloca espaço na Heap (geralmente 4 elementos). O valor 10 é copiado para a Heap.",
+        tag: "heap", codeIdx: 2,
+        stack: ["Frame: main()", "  v: Vec<i32> {", "    ptr: 0xdd80", "    len: 1, cap: 4", "  }"],
+        heap: ["0xdd80: [10, _, _, _]", "  cap=4 (16 bytes alocados)"],
+        stc: [], drop: [],
+        cpu: "l2", cpuVal: "alloc + push",
+        explain: "No primeiro push, Vec aloca um buffer na Heap (geralmente capacity = 4). <strong>Amortized O(1)</strong>: o Vec dobra a capacity quando fica cheio, evitando realocações frequentes. O allocator padrão do Rust é o <strong>jemalloc</strong> ou o system allocator.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "v.push(20), v.push(30) — sem realocação",
+        desc: "Capacity = 4, len = 3. Os valores são adicionados no buffer existente. Nenhuma realocação necessária.",
+        tag: "heap", codeIdx: 4,
+        stack: ["Frame: main()", "  v: Vec<i32> {", "    ptr: 0xdd80", "    len: 3, cap: 4", "  }"],
+        heap: ["0xdd80: [10, 20, 30, _]", "  3/4 slots usados"],
+        stc: [], drop: [],
+        cpu: "l1", cpuVal: "push x2",
+        explain: "Push sem realocação é extremamente rápido — apenas incrementa len e escreve no offset correto. Os dados ficam <strong>contíguos na memória</strong>, o que é excelente para cache locality da CPU. Vec é mais cache-friendly que uma LinkedList.",
+        regions: ["heap"]
+      },
+      {
+        title: "&v[0] — borrow imutável de elemento",
+        desc: "primeiro aponta para o primeiro elemento na Heap. Enquanto esse borrow existir, v não pode ser modificada.",
+        tag: "own", codeIdx: 5,
+        stack: ["Frame: main()", "  v: Vec<i32> {ptr,len:3,cap:4}", "  primeiro: &i32 → v[0]", "  (borrow imutável ativo)"],
+        heap: ["0xdd80: [10, 20, 30, _]", "       ↑ primeiro aponta aqui"],
+        stc: [], drop: [],
+        cpu: "reg", cpuVal: "&v[0]=&10",
+        explain: "<code>&v[0]</code> cria uma referência para o elemento na Heap. O <strong>borrow checker</strong> agora impõe: enquanto <code>primeiro</code> existir, <code>v</code> está emprestada imutavelmente. Nenhuma operação que possa invalidar o ponteiro (como push, que pode realocar o buffer) é permitida.",
+        regions: ["stack", "heap"]
+      },
+      {
+        title: "v.push(40) — BLOQUEADO pelo borrow checker!",
+        desc: "push() precisa de &mut v. Mas já existe &v (primeiro). Rust proíbe &mut enquanto & ativo. NÃO COMPILA.",
+        tag: "own", codeIdx: 6,
+        stack: ["Frame: main()", "  v: Vec<i32> (borrowed &)", "  primeiro: &i32 ativo"],
+        heap: ["0xdd80: [10, 20, 30, _]"],
+        stc: [],
+        drop: ["⚠ ERRO DE COMPILAÇÃO:", "cannot borrow `v` as mutable", "because it's also borrowed", "as immutable"],
+        cpu: "l1", cpuVal: "⛔ compile error",
+        explain: "Regra do Rust: <strong>OU múltiplos &borrows imutáveis, OU exatamente um &mut borrow mutável — nunca ambos</strong>. push() poderia realocar o buffer da Heap, invalidando o ponteiro que <code>primeiro</code> guarda. Em C++, isso seria um <strong>iterator invalidation bug</strong> — um dos bugs mais comuns. Rust previne em compilação.",
+        regions: ["drop"]
+      },
+      {
+        title: "println!(primeiro) — borrow usado e encerrado",
+        desc: "Após o println!, o borrow de primeiro termina (NLL). v volta a ser livre para mutação.",
+        tag: "stack", codeIdx: 7,
+        stack: ["Frame: main()", "  v: Vec<i32> ✅ livre", "  primeiro: borrow encerrado"],
+        heap: ["0xdd80: [10, 20, 30, _]"],
+        stc: ["fmt: \"primeiro: {}\""], drop: [],
+        cpu: "l1", cpuVal: "fmt + write",
+        explain: "<strong>NLL (Non-Lexical Lifetimes)</strong>: o borrow de <code>primeiro</code> termina no último ponto onde é usado (println!), não no fim do escopo. Isso é uma otimização do borrow checker que permite mais flexibilidade. Após essa linha, v poderia receber push() normalmente.",
+        regions: ["stack", "stc"]
+      },
+      {
+        title: "} — Vec::drop() libera o buffer",
+        desc: "v sai de escopo. Drop percorre os elementos (nenhum precisa de Drop nesse caso) e depois libera o buffer da Heap.",
+        tag: "drop", codeIdx: 8,
+        stack: ["← frame destruído"],
+        heap: ["← 0xdd80: LIBERADO (16 bytes)"],
+        stc: [],
+        drop: ["Drop::drop(v)", "→ drop elementos (i32: noop)", "→ dealloc buffer 16 bytes", "memória devolvida ao OS"],
+        cpu: "l2", cpuVal: "dealloc",
+        explain: "<code>Vec::drop()</code> faz duas coisas: primeiro, chama <code>drop()</code> em cada elemento (para i32, é um no-op). Depois, libera o buffer na Heap com <code>dealloc()</code>. Se o Vec contivesse Strings, cada String seria dropada individualmente antes do buffer — <strong>destruição em cascata, determinística e automática</strong>.",
+        regions: ["drop", "heap"]
+      }
+    ]
+  }
+];
+
+let currentScenario = 0;
+let currentStep = -1;
+let autoRunTimer = null;
+
+function buildScenarioButtons() {
+  const div = document.getElementById('scenario-buttons');
+  div.innerHTML = scenarios.map((s, i) =>
+    `<button class="scenario-btn${i===0?' active':''}" onclick="loadScenario(${i})">${s.name}</button>`
+  ).join('');
+}
+
+function loadScenario(idx) {
+  currentScenario = idx;
+  currentStep = -1;
+  document.querySelectorAll('.scenario-btn').forEach((b, i) => {
+    b.classList.toggle('active', i === idx);
+  });
+  renderCode();
+  renderSteps();
+  resetRegions();
+  updateProgress();
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Pronto</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para começar a simulação do cenário: <strong>${scenarios[idx].name}</strong></p>
+  `;
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+}
+
+function renderCode() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('code-display');
+  div.innerHTML = s.code.map((l, i) =>
+    `<span class="code-line" id="cl-${i}">${l.text || '&nbsp;'}</span>`
+  ).join('\n');
+}
+
+function renderSteps() {
+  const s = scenarios[currentScenario];
+  const div = document.getElementById('steps-list');
+  div.innerHTML = s.steps.map((step, i) => `
+    <div class="step" id="step-${i}" onclick="jumpToStep(${i})">
+      <div class="step-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="step-content">
+        <div class="step-title">${step.title}</div>
+        <div class="step-desc" style="display:none">${step.desc}</div>
+        <span class="step-tag tag-${step.tag}" style="display:none">${step.tag.toUpperCase()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function resetRegions() {
+  ['stack', 'heap', 'stc', 'drop'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const labels = { stack: 'aguardando execução...', heap: 'aguardando alocação...', stc: 'dados estáticos...', drop: 'sem GC — determinístico' };
+    el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">${labels[r]}</div>`;
+    document.getElementById(`reg-${r}`).classList.remove('active');
+  });
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+}
+
+function updateProgress() {
+  const s = scenarios[currentScenario];
+  const pct = currentStep < 0 ? 0 : ((currentStep + 1) / s.steps.length) * 100;
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function applyStep(idx) {
+  const s = scenarios[currentScenario];
+  const step = s.steps[idx];
+
+  // highlight code
+  document.querySelectorAll('.code-line').forEach(l => l.classList.remove('hl'));
+  const cl = document.getElementById(`cl-${step.codeIdx}`);
+  if (cl) cl.classList.add('hl');
+
+  // update steps UI
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.toggle('active-step', i === idx);
+    const desc = el.querySelector('.step-desc');
+    const tag = el.querySelector('.step-tag');
+    if (i === idx) {
+      desc.style.display = 'block';
+      tag.style.display = 'inline-block';
+    } else {
+      desc.style.display = 'none';
+      tag.style.display = 'none';
+    }
+  });
+
+  // update regions
+  ['stack', 'heap', 'stc', 'drop'].forEach(r => {
+    const el = document.getElementById(`${r}-items`);
+    const items = step[r];
+    const region = document.getElementById(`reg-${r}`);
+    if (items && items.length > 0) {
+      el.innerHTML = items.map(it =>
+        `<div class="mem-item ${r}-item visible">${it}</div>`
+      ).join('');
+      region.classList.add('active');
+    } else {
+      el.innerHTML = `<div style="font-size:0.62rem;color:var(--text-dim);margin-top:4px">vazio</div>`;
+      region.classList.remove('active');
+    }
+  });
+
+  // CPU
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  const cpuMap = { reg: 'cpu-reg', l1: 'cpu-l1', l2: 'cpu-l2', l3: 'cpu-l3' };
+  const cpuEl = document.getElementById(cpuMap[step.cpu]);
+  if (cpuEl) cpuEl.classList.add('active-layer');
+  document.getElementById('cpu-reg-val').textContent = step.cpuVal || '';
+
+  // Explanation
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>💡 passo ${idx + 1} — ${step.title}</h3>
+    <p>${step.explain}</p>
+  `;
+
+  updateProgress();
+}
+
+function runNext() {
+  const s = scenarios[currentScenario];
+  currentStep++;
+  if (currentStep >= s.steps.length) {
+    currentStep = s.steps.length - 1;
+    document.getElementById('explanation-box').innerHTML = `
+      <h3>✅ Simulação concluída</h3>
+      <p>Todos os passos foram executados. Clique em <strong>Resetar</strong> para recomeçar ou escolha outro cenário.</p>
+    `;
+    return;
+  }
+  applyStep(currentStep);
+}
+
+function runAll() {
+  resetAll();
+  const s = scenarios[currentScenario];
+  let i = 0;
+  function next() {
+    if (i >= s.steps.length) return;
+    currentStep = i;
+    applyStep(i);
+    i++;
+    autoRunTimer = setTimeout(next, 1200);
+  }
+  next();
+}
+
+function resetAll() {
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  currentStep = -1;
+  resetRegions();
+  renderCode();
+  renderSteps();
+  updateProgress();
+  document.getElementById('cpu-reg-val').textContent = '';
+  document.querySelectorAll('.cpu-layer').forEach(l => l.classList.remove('active-layer'));
+  document.getElementById('explanation-box').innerHTML = `
+    <h3>📌 Resetado</h3>
+    <p>Clique em <strong>Executar passo a passo</strong> para iniciar a simulação.</p>
+  `;
+}
+
+function jumpToStep(idx) {
+  currentStep = idx;
+  applyStep(idx);
+}
+
+// Init
+buildScenarioButtons();
+loadScenario(0);
+</script>
+</body>
+</html>
