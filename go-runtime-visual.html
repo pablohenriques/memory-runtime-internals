@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Go Runtime — Visualização Interativa</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#07091a; --bg2:#0d1226; --bg3:#131c36; --border:#1a2845;
+  --gor:#4ecdc4; --gor-dim:#1e5c58;
+  --proc:#a78bfa; --proc-dim:#4a3878;
+  --mach:#f7c59f; --mach-dim:#7a5030;
+  --chan:#34d399; --chan-dim:#1a5c40;
+  --gq:#fbbf24;  --gq-dim:#7a5c10;
+  --blk:#f87171; --blk-dim:#6b2020;
+  --go:#00ADD8;
+  --text:#e2e8f0; --text-dim:#64748b;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;min-height:100vh;overflow-x:hidden;}
+.noise{position:fixed;inset:0;pointer-events:none;z-index:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");opacity:.4;}
+.main{position:relative;z-index:1;max-width:1280px;margin:0 auto;padding:28px 20px;}
+
+.header{text-align:center;margin-bottom:28px;}
+.header h1{font-family:'JetBrains Mono',monospace;font-size:clamp(1.2rem,2.6vw,1.85rem);font-weight:700;letter-spacing:-.02em;}
+.header h1 span{color:var(--go);}
+.header p{margin-top:6px;color:var(--text-dim);font-size:.875rem;}
+
+.scenarios{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:24px;}
+.sc-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:7px 15px;border-radius:6px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:.75rem;transition:all .2s;}
+.sc-btn:hover{border-color:var(--go);color:var(--text);}
+.sc-btn.active{background:var(--go);color:#07091a;border-color:var(--go);font-weight:700;}
+
+.arch{display:grid;grid-template-columns:250px 1fr;gap:14px;margin-bottom:14px;}
+
+/* scheduler box */
+.sched-box{background:var(--bg2);border:1px solid var(--proc-dim);border-radius:12px;padding:16px 14px;display:flex;flex-direction:column;gap:10px;}
+.box-title{font-family:'JetBrains Mono',monospace;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding-bottom:10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+.box-title .dot{width:8px;height:8px;border-radius:50%;background:currentColor;}
+.sched-box .box-title{color:var(--proc);}
+.sub-label{font-family:'JetBrains Mono',monospace;font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;}
+
+.gq-box{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:9px;transition:all .3s;}
+.gq-box.active{border-color:var(--gq);box-shadow:0 0 12px rgba(251,191,36,.18);}
+.gq-box .sub-label{color:var(--gq);}
+.q-row{display:flex;flex-wrap:wrap;gap:4px;min-height:22px;align-items:center;}
+
+.p-box{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:9px;transition:all .3s;}
+.p-box.active{border-color:var(--proc);box-shadow:0 0 10px rgba(167,139,250,.18);}
+.p-box.stealing{border-color:var(--gq);animation:stl .5s ease 2;}
+@keyframes stl{50%{box-shadow:0 0 20px rgba(251,191,36,.45);}}
+.p-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;}
+.p-name{font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:700;color:var(--proc);}
+.m-tag{font-family:'JetBrains Mono',monospace;font-size:.58rem;padding:2px 6px;border-radius:4px;background:rgba(247,197,159,.1);border:1px solid rgba(247,197,159,.3);color:var(--mach);}
+.m-tag.blk{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.3);color:var(--blk);}
+.run-slot{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 7px;margin-bottom:6px;min-height:28px;display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--text-dim);transition:all .3s;}
+.run-slot.on{border-color:var(--chan);background:rgba(52,211,153,.04);}
+.run-lbl{font-size:.56rem;color:var(--text-dim);white-space:nowrap;}
+.lq-lbl{font-family:'JetBrains Mono',monospace;font-size:.56rem;color:var(--text-dim);margin-bottom:4px;}
+.lq-row{display:flex;flex-wrap:wrap;gap:3px;min-height:18px;align-items:center;}
+
+.blk-box{background:rgba(248,113,113,.04);border:1px solid var(--blk-dim);border-radius:8px;padding:9px;display:none;}
+.blk-box.show{display:block;}
+.blk-box .sub-label{color:var(--blk);}
+.blk-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;align-items:flex-start;}
+.blk-reason{font-family:'JetBrains Mono',monospace;font-size:.56rem;color:var(--text-dim);margin-top:3px;width:100%;}
+
+/* goroutine chip */
+.gc{display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:.62rem;font-weight:600;border:1px solid;transition:all .3s;animation:cin .2s ease;}
+@keyframes cin{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+.gc.runnable{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.4);color:#fbbf24;}
+.gc.running{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.4);color:#34d399;}
+.gc.blocked{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.4);color:#f87171;}
+.gc.done{background:rgba(100,116,139,.08);border-color:rgba(100,116,139,.3);color:#64748b;}
+.gc .gd{width:5px;height:5px;border-radius:50%;background:currentColor;}
+.gc.running .gd{animation:gp .9s ease-in-out infinite;}
+@keyframes gp{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* runtime box */
+.rt-box{background:var(--bg2);border:1px solid var(--gor-dim);border-radius:12px;padding:16px 18px;}
+.rt-box .box-title{color:var(--gor);margin-bottom:14px;}
+.rt-regions{display:grid;grid-template-columns:1.4fr 1fr .95fr;gap:10px;}
+
+.region{border-radius:8px;padding:12px;border:1px solid var(--border);transition:all .3s;}
+.reg-gor{background:rgba(78,205,196,.03);}  .reg-gor.active{border-color:var(--gor);box-shadow:0 0 14px rgba(78,205,196,.15);}  .reg-gor .rn{color:var(--gor);}
+.reg-chan{background:rgba(52,211,153,.03);}  .reg-chan.active{border-color:var(--chan);box-shadow:0 0 14px rgba(52,211,153,.15);} .reg-chan .rn{color:var(--chan);}
+.reg-heap{background:rgba(167,139,250,.03);} .reg-heap.active{border-color:var(--proc);box-shadow:0 0 14px rgba(167,139,250,.15);}  .reg-heap .rn{color:var(--proc);}
+
+.rn{font-family:'JetBrains Mono',monospace;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}
+
+.gt{width:100%;border-collapse:collapse;}
+.gt th{font-family:'JetBrains Mono',monospace;font-size:.56rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:3px 5px;border-bottom:1px solid var(--border);}
+.gt td{font-family:'JetBrains Mono',monospace;font-size:.62rem;padding:5px 5px;border-bottom:1px solid rgba(255,255,255,.025);transition:all .3s;vertical-align:middle;}
+.gt tr.rr td{background:rgba(52,211,153,.04);}
+.gt tr.rb td{background:rgba(248,113,113,.04);}
+.gt tr.rd td{opacity:.45;}
+
+.sp{display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:.58rem;font-weight:600;}
+.sp.runnable{background:rgba(251,191,36,.12);color:#fbbf24;}
+.sp.running{background:rgba(52,211,153,.12);color:#34d399;}
+.sp.blocked{background:rgba(248,113,113,.12);color:#f87171;}
+.sp.done{background:rgba(100,116,139,.12);color:#64748b;}
+.sp .sd{width:4px;height:4px;border-radius:50%;background:currentColor;}
+.sp.running .sd{animation:gp .9s ease-in-out infinite;}
+
+.ch-desc{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--text-dim);margin-bottom:8px;}
+.ch-slots{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;}
+.ch-slot{width:34px;height:34px;border-radius:6px;border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text-dim);transition:all .35s;}
+.ch-slot.filled{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.5);color:var(--chan);font-weight:700;}
+.ch-gors{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.ch-gor{font-family:'JetBrains Mono',monospace;font-size:.6rem;padding:3px 7px;border-radius:4px;border:1px solid var(--border);transition:all .3s;}
+.ch-gor.sending{border-color:var(--go);color:var(--go);background:rgba(0,173,216,.07);}
+.ch-gor.receiving{border-color:var(--chan);color:var(--chan);background:rgba(52,211,153,.07);}
+.ch-gor.blk-send{border-color:var(--blk);color:var(--blk);background:rgba(248,113,113,.07);}
+.ch-gor.idle{color:var(--text-dim);}
+
+.hi{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-family:'JetBrains Mono',monospace;font-size:.6rem;margin-bottom:4px;transition:all .3s;}
+.hi.hl{border-color:var(--proc);background:rgba(167,139,250,.05);}
+.hi-l{font-size:.56rem;color:var(--text-dim);}
+.hi-v{color:var(--text);}
+
+/* controls */
+.controls{display:flex;gap:8px;align-items:center;margin:14px 0;flex-wrap:wrap;}
+.cbtn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:8px 16px;border-radius:7px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:.75rem;transition:all .2s;}
+.cbtn:hover{border-color:var(--go);color:var(--text);}
+.cbtn.primary{background:rgba(0,173,216,.1);border-color:var(--go);color:var(--go);}
+.cbtn.primary:hover{background:rgba(0,173,216,.22);}
+.prog-wrap{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;min-width:60px;}
+.prog-fill{height:100%;background:var(--go);border-radius:2px;width:0%;transition:width .4s ease;}
+.gmp-badge{font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text-dim);padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);}
+.gmp-badge span{color:var(--go);font-weight:700;}
+
+/* bottom */
+.bottom{display:grid;grid-template-columns:1fr 190px 1fr;gap:14px;}
+.code-panel,.steps-panel,.explain-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.panel-hd{background:var(--bg3);padding:9px 14px;font-family:'JetBrains Mono',monospace;font-size:.66rem;color:var(--text-dim);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;}
+.tl{width:8px;height:8px;border-radius:50%;}
+
+#code-display{padding:12px;font-family:'JetBrains Mono',monospace;font-size:.73rem;line-height:1.85;overflow-y:auto;max-height:272px;}
+.cl{display:block;padding:0 5px;border-radius:3px;transition:all .2s;color:var(--text);border-left:2px solid transparent;}
+.cl.hl{background:rgba(0,173,216,.1);border-left-color:var(--go);}
+.kw{color:#7dd3fc;} .fn{color:#86efac;} .cm{color:#3d5270;font-style:italic;} .str{color:#fcd34d;} .num{color:#fb923c;} .gkw{color:var(--go);}
+
+#steps-list{overflow-y:auto;max-height:258px;padding:6px;}
+.step{padding:7px 9px;border-radius:7px;cursor:pointer;margin-bottom:3px;border:1px solid transparent;display:flex;align-items:flex-start;gap:7px;transition:all .15s;}
+.step:hover{background:var(--bg3);}
+.step.active{background:rgba(0,173,216,.07);border-color:rgba(0,173,216,.22);}
+.step-num{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--text-dim);min-width:18px;padding-top:1px;}
+.step-title{font-size:.7rem;font-weight:600;color:var(--text-dim);line-height:1.3;}
+.step.active .step-title{color:var(--text);}
+.step-desc{font-size:.62rem;color:var(--text-dim);margin-top:2px;line-height:1.5;display:none;}
+.step-tag{display:none;font-family:'JetBrains Mono',monospace;font-size:.54rem;padding:1px 5px;border-radius:3px;margin-top:3px;font-weight:700;}
+.tag-goroutine{background:rgba(78,205,196,.15);color:var(--gor);}
+.tag-scheduler{background:rgba(167,139,250,.15);color:var(--proc);}
+.tag-channel{background:rgba(52,211,153,.15);color:var(--chan);}
+.tag-syscall{background:rgba(248,113,113,.15);color:var(--blk);}
+.tag-runtime{background:rgba(0,173,216,.15);color:var(--go);}
+.tag-stealing{background:rgba(251,191,36,.15);color:var(--gq);}
+
+#expl{padding:14px;font-size:.82rem;line-height:1.75;color:var(--text-dim);overflow-y:auto;max-height:272px;}
+#expl h3{font-size:.85rem;font-weight:700;color:var(--text);margin-bottom:8px;}
+#expl p{margin-bottom:7px;}
+#expl strong{color:var(--text);}
+#expl code{font-family:'JetBrains Mono',monospace;font-size:.73rem;background:var(--bg3);padding:1px 5px;border-radius:3px;color:var(--go);border:1px solid var(--border);}
+
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="main">
+
+<div class="header">
+  <h1>Go Runtime — <span>visualização interativa</span></h1>
+  <p>Veja na prática como goroutines, o scheduler GMP, channels e syscalls funcionam por dentro</p>
+</div>
+
+<div class="scenarios">
+  <button class="sc-btn active" onclick="load(0)">01 · goroutine básica</button>
+  <button class="sc-btn" onclick="load(1)">02 · GMP scheduler</button>
+  <button class="sc-btn" onclick="load(2)">03 · work stealing</button>
+  <button class="sc-btn" onclick="load(3)">04 · channel sem buffer</button>
+  <button class="sc-btn" onclick="load(4)">05 · channel com buffer</button>
+  <button class="sc-btn" onclick="load(5)">06 · syscall bloqueante</button>
+</div>
+
+<div class="arch">
+  <div class="sched-box">
+    <div class="box-title"><div class="dot"></div>Go Scheduler<span style="margin-left:auto;font-weight:300;font-size:.58rem;color:var(--text-dim)">modelo GMP</span></div>
+    <div class="gq-box" id="gq-box"><div class="sub-label">fila global</div><div class="q-row" id="gq-row"><span style="font-size:.6rem;color:var(--text-dim)">vazia</span></div></div>
+    <div class="p-box" id="p1-box">
+      <div class="p-head"><span class="p-name">P1</span><span class="m-tag" id="p1-m">M1</span></div>
+      <div class="run-slot" id="p1-run"><span class="run-lbl">executando:</span><span style="color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:.6rem">idle</span></div>
+      <div class="lq-lbl">fila local</div><div class="lq-row" id="p1-lq"><span style="font-size:.58rem;color:var(--text-dim)">vazia</span></div>
+    </div>
+    <div class="p-box" id="p2-box">
+      <div class="p-head"><span class="p-name">P2</span><span class="m-tag" id="p2-m">M2</span></div>
+      <div class="run-slot" id="p2-run"><span class="run-lbl">executando:</span><span style="color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:.6rem">idle</span></div>
+      <div class="lq-lbl">fila local</div><div class="lq-row" id="p2-lq"><span style="font-size:.58rem;color:var(--text-dim)">vazia</span></div>
+    </div>
+    <div class="blk-box" id="blk-box"><div class="sub-label">bloqueado (syscall)</div><div class="blk-row" id="blk-row"></div></div>
+  </div>
+
+  <div class="rt-box">
+    <div class="box-title"><div class="dot"></div>Go Runtime<span style="margin-left:auto;font-weight:300;font-size:.58rem;color:var(--text-dim)">goroutines · channels · heap</span></div>
+    <div class="rt-regions">
+      <div class="region reg-gor" id="reg-gor"><div class="rn">goroutines</div><table class="gt"><thead><tr><th>G</th><th>estado</th><th>processor</th><th>stack</th></tr></thead><tbody id="gt-body"><tr><td colspan="4" style="font-size:.58rem;color:var(--text-dim);padding:8px 0">aguardando...</td></tr></tbody></table></div>
+      <div class="region reg-chan" id="reg-chan"><div class="rn">channel</div><div id="chan-vis"><div style="font-size:.6rem;color:var(--text-dim)">não ativo</div></div></div>
+      <div class="region reg-heap" id="reg-heap"><div class="rn">heap / stack</div><div id="heap-items"><div style="font-size:.6rem;color:var(--text-dim)">aguardando...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="cbtn primary" onclick="runNext()">▶ próximo passo</button>
+  <button class="cbtn" onclick="runAll()">⚡ auto-executar</button>
+  <button class="cbtn" onclick="resetAll()">↺ resetar</button>
+  <div class="prog-wrap"><div class="prog-fill" id="prog"></div></div>
+  <div class="gmp-badge">GOMAXPROCS = <span id="gmpval">1</span></div>
+</div>
+
+<div class="bottom">
+  <div class="code-panel">
+    <div class="panel-hd"><div class="tl" style="background:#f87171"></div><div class="tl" style="background:#fbbf24"></div><div class="tl" style="background:#34d399"></div><span style="margin-left:8px">main.go</span></div>
+    <div id="code-display"></div>
+  </div>
+  <div class="steps-panel"><div class="panel-hd">passos</div><div id="steps-list"></div></div>
+  <div class="explain-panel"><div class="panel-hd">explicação</div><div id="expl"><h3>📌 Pronto</h3><p>Escolha um cenário e clique em <strong>▶ próximo passo</strong>.</p></div></div>
+</div>
+</div>
+
+<script>
+const SC=[
+/* 0 goroutine básica */
+{name:"goroutine básica",gmp:1,
+code:[
+{t:`<span class="kw">package</span> main`},{t:``},{t:`<span class="kw">import</span> <span class="str">"fmt"</span>`},{t:``},
+{t:`<span class="kw">func</span> <span class="fn">tarefa</span>(id <span class="kw">int</span>) {`},
+{t:`&nbsp;&nbsp;fmt.<span class="fn">Println</span>(<span class="str">"G"</span>, id)`},{t:`}`},{t:``},
+{t:`<span class="kw">func</span> <span class="fn">main</span>() {`},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="fn">tarefa</span>(<span class="num">1</span>)`},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="fn">tarefa</span>(<span class="num">2</span>)`},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="fn">tarefa</span>(<span class="num">3</span>)`},
+{t:`&nbsp;&nbsp;<span class="cm">// main aguarda...</span>`},{t:`}`},
+],
+steps:[
+{title:"Runtime inicializa — P1 e M1 prontos",desc:"GOMAXPROCS=1: 1 Processor, 1 Machine (main thread).",tag:"runtime",ci:8,
+gq:[],p1:{m:"M1",run:null,q:[]},p2:null,blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"}],
+chan:null,heap:[{l:"GOMAXPROCS",v:"1"},{l:"goroutine main",v:"stack 2 KB"}],rgns:["gor","heap"],
+ex:"O runtime Go inicializa <em>antes</em> de <code>main()</code>. Ele cria <strong>P's</strong> (Processors) baseado em <code>GOMAXPROCS</code>. Com GOMAXPROCS=1, há apenas 1 P. O M (OS thread da main) se vincula a esse P. Regra fundamental: sem P → goroutine não executa."},
+{title:"go tarefa(1) → G1 criada com stack 2 KB",desc:"G1 alocada, entra na fila local de P1. main continua.",tag:"goroutine",ci:9,
+gq:[],p1:{m:"M1",run:"main",q:["G1"]},p2:null,blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"},{id:"G1",st:"runnable",p:"—",sk:"2 KB"}],
+chan:null,heap:[{l:"goroutine main",v:"stack 2 KB"},{l:"goroutine G1",v:"stack 2 KB ✨",hl:true}],rgns:["gor","heap"],
+ex:"A palavra-chave <code>go</code> cria uma goroutine. O runtime aloca a estrutura G com <strong>stack inicial de 2 KB</strong> — 500× menor que uma OS thread (1–8 MB). Custo de criação: ~300 ns vs ~1 ms de uma OS thread. G1 entra direto na fila local do P atual no estado <code>runnable</code>."},
+{title:"go tarefa(2) e (3) → G2 e G3 criadas",desc:"3 goroutines na fila. Custo total: 6 KB de stack.",tag:"goroutine",ci:11,
+gq:[],p1:{m:"M1",run:"main",q:["G1","G2","G3"]},p2:null,blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"},{id:"G1",st:"runnable",p:"—",sk:"2 KB"},{id:"G2",st:"runnable",p:"—",sk:"2 KB"},{id:"G3",st:"runnable",p:"—",sk:"2 KB"}],
+chan:null,heap:[{l:"3 goroutines",v:"6 KB stack total"},{l:"3 OS threads equiv.",v:"≈3 MB stack 😱"}],rgns:["gor","heap"],
+ex:"Três goroutines criadas: <strong>6 KB total</strong>. Três OS threads equivalentes custariam ~3 MB. O runtime ainda não as executou — ficam na fila de P1 no estado <code>runnable</code>. <code>main()</code> continua rodando normalmente em M1."},
+{title:"Scheduler: P1 escalona G1 — context switch",desc:"main() atinge ponto de preempção. Scheduler troca contexto para G1.",tag:"scheduler",ci:5,
+gq:[],p1:{m:"M1",run:"G1",q:["G2","G3"]},p2:null,blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2",st:"runnable",p:"—",sk:"2 KB"},{id:"G3",st:"runnable",p:"—",sk:"2 KB"}],
+chan:null,heap:[{l:"G1 — frame tarefa(1)",v:"stack 4 KB ▲",hl:true},{l:"G2, G3",v:"aguardando na fila"}],rgns:["gor","heap"],
+ex:"O scheduler age em <strong>pontos de preempção</strong>: chamadas de função, I/O, channels, ou preempção assíncrona a cada ~10 ms. M1 salva o contexto de <code>main()</code> e carrega G1. Stack de G1 cresce: 2 KB → 4 KB para o frame de <code>tarefa()</code>. Context switch em userspace: ~100 ns (vs ~1–10 µs no kernel)."},
+{title:"G1 executa fmt.Println → syscall write()",desc:"Println → os.Stdout.Write() → syscall write no OS.",tag:"goroutine",ci:5,
+gq:[],p1:{m:"M1",run:"G1",q:["G2","G3"]},p2:null,blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2",st:"runnable",p:"—",sk:"2 KB"},{id:"G3",st:"runnable",p:"—",sk:"2 KB"}],
+chan:null,heap:[{l:"G1 syscall",v:"write(fd=1, buf)",hl:true}],rgns:["gor","heap"],
+ex:"<code>fmt.Println</code> → <code>os.Stdout.Write()</code> → syscall <code>write()</code>. Para I/O não-bloqueante em stdout, o Go deixa M avançar. Para syscalls <em>bloqueantes</em> (disco, rede raw), o comportamento é diferente: P se desvincula de M. Veja o cenário <strong>06 · syscall bloqueante</strong> para esse caso."},
+{title:"G1 termina — G2 e G3 executam em sequência",desc:"Stack de G1 liberado imediatamente. Scheduler escala G2, depois G3.",tag:"scheduler",ci:12,
+gq:[],p1:{m:"M1",run:"G3",q:[]},p2:null,blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"G1",st:"done",p:"—",sk:"—"},{id:"G2",st:"done",p:"—",sk:"—"},{id:"G3",st:"running",p:"P1/M1",sk:"4 KB"}],
+chan:null,heap:[{l:"G3 executando",v:"stack 4 KB",hl:true},{l:"G1, G2",v:"stack liberado ✓"}],rgns:["gor","heap"],
+ex:"Goroutine termina → runtime <strong>libera o stack imediatamente</strong> — sem GC. A estrutura G vai para um pool e pode ser reutilizada. G2 executou antes de G3 (FIFO na fila local). Com GOMAXPROCS=1, nunca há duas goroutines rodando ao mesmo tempo — concorrência sem paralelismo."},
+{title:"⚠️ Armadilha: main() não espera goroutines!",desc:"Se main() retornar antes delas terminarem, o programa encerra e as mata.",tag:"runtime",ci:13,
+gq:[],p1:{m:"M1",run:"main",q:[]},p2:null,blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"},{id:"G1",st:"done",p:"—",sk:"—"},{id:"G2",st:"done",p:"—",sk:"—"},{id:"G3",st:"done",p:"—",sk:"—"}],
+chan:null,heap:[{l:"Solução correta",v:"sync.WaitGroup",hl:true},{l:"Alternativa",v:"channel de done"}],rgns:["gor","heap"],
+ex:"⚠️ <code>main()</code> <strong>não espera automaticamente</strong> por goroutines filhas. Se main() retornar cedo, o programa encerra e mata todas elas. Soluções: (1) <code>sync.WaitGroup</code> — contador de goroutines vivas; (2) <strong>channel de done</strong> — goroutine sinaliza quando termina. Nunca use <code>time.Sleep</code> para isso — é uma race condition esperando acontecer."},
+]},
+
+/* 1 GMP scheduler */
+{name:"GMP scheduler",gmp:2,
+code:[
+{t:`<span class="kw">package</span> main`},{t:``},{t:`<span class="kw">import</span> <span class="str">"sync"</span>`},{t:``},
+{t:`<span class="kw">func</span> <span class="fn">main</span>() {`},
+{t:`&nbsp;&nbsp;<span class="kw">var</span> wg sync.WaitGroup`},{t:``},
+{t:`&nbsp;&nbsp;<span class="kw">for</span> i := <span class="num">0</span>; i &lt; <span class="num">4</span>; i++ {`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;wg.<span class="fn">Add</span>(<span class="num">1</span>)`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="gkw">go</span> <span class="kw">func</span>() {`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">defer</span> wg.<span class="fn">Done</span>()`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">// CPU-bound work</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;}()`},{t:`&nbsp;&nbsp;}`},
+{t:`&nbsp;&nbsp;wg.<span class="fn">Wait</span>()`},{t:`}`},
+],
+steps:[
+{title:"GOMAXPROCS=2 — 2 P's, 2 M's criados",desc:"Runtime cria P1 e P2. M1 e M2 aguardam no thread pool.",tag:"runtime",ci:4,
+gq:[],p1:{m:"M1",run:null,q:[]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"}],
+chan:null,heap:[{l:"GOMAXPROCS",v:"2 (2 cores)"},{l:"Processors criados",v:"P1 e P2"}],rgns:["gor","heap"],
+ex:"Com <code>GOMAXPROCS=2</code>, o runtime cria <strong>2 Processors (P)</strong>. Cada P tem sua própria fila local de goroutines — sem lock para acessar a própria fila. P precisa de um M (OS thread) para executar goroutines. M's ficam em um pool quando ociosos, evitando custo de criar/destruir OS threads."},
+{title:"Loop cria G1–G4 na fila local de P1",desc:"Novas goroutines vão para a fila local do P que as criou.",tag:"goroutine",ci:9,
+gq:[],p1:{m:"M1",run:"main",q:["G1","G2","G3","G4"]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"},{id:"G1",st:"runnable",p:"—",sk:"2 KB"},{id:"G2",st:"runnable",p:"—",sk:"2 KB"},{id:"G3",st:"runnable",p:"—",sk:"2 KB"},{id:"G4",st:"runnable",p:"—",sk:"2 KB"}],
+chan:null,heap:[{l:"P1 fila local",v:"4 goroutines"},{l:"Total stack",v:"8 KB"}],rgns:["gor","heap"],
+ex:"Goroutines criadas por P1 vão para a <strong>fila local de P1</strong>. Isso evita contenção — P1 acessa sua própria fila sem lock. A fila local tem capacidade de <strong>256 goroutines</strong>. Se encher, metade migra para a fila global (acessível por todos os P's, com lock)."},
+{title:"P2 detecta fila cheia → work stealing: roba G3 e G4",desc:"P2/M2 roba metade da fila local de P1 com CAS atômico.",tag:"stealing",ci:11,
+gq:[],p1:{m:"M1",run:"G1",q:["G2"]},p2:{m:"M2",run:"G3",q:["G4"],steal:true},blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2",st:"runnable",p:"P1",sk:"2 KB"},{id:"G3",st:"running",p:"P2/M2",sk:"4 KB"},{id:"G4",st:"runnable",p:"P2",sk:"2 KB"}],
+chan:null,heap:[{l:"P1",v:"executando G1"},{l:"P2",v:"roubou G3+G4 ⚡",hl:true}],rgns:["gor","heap"],
+ex:"<strong>Work Stealing</strong>: P2 sem trabalho verifica filas de outros P's. Roba <code>floor(N/2)</code> goroutines de P1 com um lock CAS (Compare-And-Swap) de custo mínimo. O roubo ocorre pela frente da fila de P1. Resultado: <strong>balanceamento automático de carga</strong> sem nenhum código extra do programador."},
+{title:"G1 e G3 em paralelismo real — 2 cores simultâneos",desc:"M1 e M2 executam em hardware diferente ao mesmo tempo.",tag:"scheduler",ci:11,
+gq:[],p1:{m:"M1",run:"G1",q:["G2"]},p2:{m:"M2",run:"G3",q:["G4"]},blk:null,
+gors:[{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2",st:"runnable",p:"P1",sk:"2 KB"},{id:"G3",st:"running",p:"P2/M2",sk:"4 KB"},{id:"G4",st:"runnable",p:"P2",sk:"2 KB"}],
+chan:null,heap:[{l:"paralelismo",v:"2 cores simultâneos",hl:true}],rgns:["gor","heap"],
+ex:"<strong>Paralelismo verdadeiro</strong>: G1 e G3 executam literalmente ao mesmo tempo em dois núcleos de CPU diferentes. M1 e M2 são OS threads escalonados pelo SO em cores separados. Cada M interage apenas com seu P — sem interferência entre si. É isso que torna Go eficiente em hardware multicore."},
+{title:"main() bloqueia em wg.Wait() — P livre para outros",desc:"WaitGroup.Wait() suspende main sem travar o M.",tag:"scheduler",ci:14,
+gq:[],p1:{m:"M1",run:"G2",q:[]},p2:{m:"M2",run:"G4",q:[]},blk:null,
+gors:[{id:"main",st:"blocked",p:"wg.Wait()",sk:"2 KB"},{id:"G1",st:"done",p:"—",sk:"—"},{id:"G2",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G3",st:"done",p:"—",sk:"—"},{id:"G4",st:"running",p:"P2/M2",sk:"4 KB"}],
+chan:null,heap:[{l:"main",v:"bloqueada no WaitGroup"},{l:"P1, P2",v:"executando G2 e G4"}],rgns:["gor"],
+ex:"<code>wg.Wait()</code> bloqueia <code>main</code> — ela vai para o estado <strong>waiting</strong>. O runtime <em>não</em> desperdiça um M nela: P1 pode executar G2. Quando <code>wg.Done()</code> é chamado (por G2 e G4 com <code>defer</code>), o runtime acorda <code>main</code> e a coloca de volta na fila. Elegante: zero polling, zero CPU waste."},
+{title:"Todas concluídas — WaitGroup=0 → main retorna",desc:"wg.Done() ×4 → WaitGroup zerou → main() desbloqueia.",tag:"runtime",ci:14,
+gq:[],p1:{m:"M1",run:"main",q:[]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"},{id:"G1",st:"done",p:"—",sk:"—"},{id:"G2",st:"done",p:"—",sk:"—"},{id:"G3",st:"done",p:"—",sk:"—"},{id:"G4",st:"done",p:"—",sk:"—"}],
+chan:null,heap:[{l:"4 stacks liberados",v:"sem GC necessário"},{l:"M2",v:"de volta ao pool"}],rgns:["gor","heap"],
+ex:"WaitGroup zerou. Main desbloqueia e retorna. P2 fica ocioso; M2 retorna ao <strong>thread pool</strong> do runtime — não é destruído (custo alto criar OS threads). O runtime mantém M's vivos esperando por trabalho. Próxima goroutine: reutiliza M2 sem custo de criação."},
+]},
+
+/* 2 work stealing */
+{name:"work stealing",gmp:2,
+code:[
+{t:`<span class="cm">// P1 sobrecarregado, P2 ocioso</span>`},{t:``},
+{t:`<span class="kw">func</span> <span class="fn">main</span>() {`},
+{t:`&nbsp;&nbsp;<span class="cm">// cria 6 goroutines via P1</span>`},
+{t:`&nbsp;&nbsp;<span class="kw">for</span> i := <span class="num">0</span>; i &lt; <span class="num">6</span>; i++ {`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="gkw">go</span> <span class="fn">worker</span>(i)`},{t:`&nbsp;&nbsp;}`},{t:``},
+{t:`&nbsp;&nbsp;<span class="cm">// P2 sem trabalho:</span>`},
+{t:`&nbsp;&nbsp;<span class="cm">// 1. checa fila global</span>`},
+{t:`&nbsp;&nbsp;<span class="cm">// 2. rouba fila local de P1</span>`},{t:`}`},
+],
+steps:[
+{title:"6 goroutines empilhadas na fila de P1",desc:"P1 tem 5 na fila + 1 rodando. P2 completamente ocioso.",tag:"scheduler",ci:5,
+gq:[],p1:{m:"M1",run:"G1",q:["G2","G3","G4","G5","G6"]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2–G6",st:"runnable",p:"P1 queue",sk:"10 KB"}],
+chan:null,heap:[{l:"P1 queue",v:"5 goroutines"},{l:"P2 queue",v:"vazia (idle)"}],rgns:["gor","heap"],
+ex:"Desbalanceamento de carga: P1 tem 5 goroutines aguardando + 1 rodando. P2 está completamente ocioso — desperdiçando um core de CPU. Sem work stealing, P2 ficaria inútil até P1 terminar tudo, dobrando o tempo de execução desnecessariamente."},
+{title:"P2 verifica fila global a cada 61 iterações",desc:"Fila global está vazia. P2 parte para work stealing.",tag:"stealing",ci:9,
+gq:[],p1:{m:"M1",run:"G1",q:["G2","G3","G4","G5","G6"]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2–G6",st:"runnable",p:"P1 queue",sk:"10 KB"}],
+chan:null,heap:[{l:"fila global",v:"vazia"},{l:"P2",v:"→ iniciando work steal",hl:true}],rgns:["gor","heap"],
+ex:"O scheduler loop de cada P verifica a <strong>fila global</strong> a cada 61 iterações (número primo para evitar sincronização de padrão entre P's). Isso garante fairness — goroutines na fila global não ficam com starvation. Fila global vazia → P2 parte para roubar de outro P."},
+{title:"Work steal: P2 toma ⌊5/2⌋=2 goroutines de P1",desc:"CAS atômico na fila de P1. Operação de custo mínimo.",tag:"stealing",ci:10,
+gq:[],p1:{m:"M1",run:"G1",q:["G2","G3"]},p2:{m:"M2",run:"G4",q:["G5","G6"],steal:true},blk:null,
+gors:[{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2,G3",st:"runnable",p:"P1",sk:"4 KB"},{id:"G4",st:"running",p:"P2/M2",sk:"4 KB"},{id:"G5,G6",st:"runnable",p:"P2",sk:"4 KB"}],
+chan:null,heap:[{l:"P1",v:"3 restantes (G1+G2+G3)"},{l:"P2",v:"3 roubadas ⚡",hl:true}],rgns:["gor","heap"],
+ex:"P2 usa <strong>Compare-And-Swap (CAS)</strong> — operação atômica de hardware — para roubar <code>floor(5/2)=2</code> goroutines de P1 (mais G4 para executar agora). O roubo ocorre pela <em>frente</em> da fila de P1 para minimizar impacto no P1 que continua executando."},
+{title:"Carga perfeitamente balanceada — throughput 2×",desc:"P1 e P2 executam em paralelo com carga equilibrada.",tag:"stealing",ci:11,
+gq:[],p1:{m:"M1",run:"G2",q:["G3"]},p2:{m:"M2",run:"G5",q:["G6"]},blk:null,
+gors:[{id:"G1",st:"done",p:"—",sk:"—"},{id:"G2",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G3",st:"runnable",p:"P1",sk:"2 KB"},{id:"G4",st:"done",p:"—",sk:"—"},{id:"G5",st:"running",p:"P2/M2",sk:"4 KB"},{id:"G6",st:"runnable",p:"P2",sk:"2 KB"}],
+chan:null,heap:[{l:"throughput",v:"2× sem alterar código",hl:true}],rgns:["gor","heap"],
+ex:"<strong>Resultado</strong>: ambos os cores estão 100% ocupados. O tempo total caiu pela metade vs executar tudo em P1. E isso aconteceu <em>sem nenhum código extra</em> do programador — o runtime cuida de tudo. É por isso que Go escala automaticamente em hardware multicore sem que você precise gerenciar threads."},
+]},
+
+/* 3 channel sem buffer */
+{name:"channel sem buffer",gmp:1,
+code:[
+{t:`<span class="kw">package</span> main`},{t:``},
+{t:`<span class="kw">func</span> <span class="fn">main</span>() {`},
+{t:`&nbsp;&nbsp;ch := <span class="fn">make</span>(<span class="kw">chan int</span>)`},{t:``},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="kw">func</span>() { <span class="cm">// gorA: sender</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;ch &lt;- <span class="num">42</span>  <span class="cm">// bloqueia!</span>`},{t:`&nbsp;&nbsp;}()`},{t:``},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="kw">func</span>() { <span class="cm">// gorB: receiver</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;v := &lt;-ch <span class="cm">// desbloqueia gorA</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">// v == 42</span>`},{t:`&nbsp;&nbsp;}()`},{t:`}`},
+],
+steps:[
+{title:"make(chan int) — canal sem buffer criado",desc:"Capacidade=0. Sender e receiver precisam se encontrar simultaneamente.",tag:"channel",ci:3,
+gq:[],p1:{m:"M1",run:"main",q:[]},p2:null,blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"}],
+chan:{mode:"u",cap:0,slots:[],gA:"idle",gB:"idle"},heap:[{l:"ch (chan int)",v:"cap=0, len=0"}],rgns:["chan","heap"],
+ex:"<code>make(chan int)</code> cria um canal <strong>sem buffer</strong> (capacidade 0). Isso força uma sincronização direta — o sender bloqueia até que um receiver esteja pronto, e vice-versa. Linguistas chamam isso de <strong>rendezvous</strong>: os dois precisam aparecer ao mesmo tempo. Zero memória de buffer alocada."},
+{title:"gorA → ch <- 42 → bloqueia! Sem receiver ainda.",desc:"gorA entra na send-queue do channel. P fica livre.",tag:"channel",ci:6,
+gq:[],p1:{m:"M1",run:"gorA",q:[]},p2:null,blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"gorA",st:"blocked",p:"ch send",sk:"2 KB"}],
+chan:{mode:"u",cap:0,slots:[],gA:"blk-send",gB:"idle"},heap:[{l:"gorA",v:"na send-queue de ch",hl:true},{l:"ch.sendq",v:"[gorA waiting]"}],rgns:["gor","chan","heap"],
+ex:"gorA executa <code>ch &lt;- 42</code>. Não há receiver: <strong>gorA bloqueia</strong>. O runtime: (1) adiciona gorA à <code>sendq</code> interna do channel, (2) remove gorA do P, (3) P fica livre para outras goroutines. O M <em>não</em> fica bloqueado — apenas a goroutine. M bloqueado = core desperdiçado."},
+{title:"gorB → v := <-ch → transferência direta! gorA acorda.",desc:"Runtime detecta gorA na sendq. Copia stack-a-stack: zero buffer intermediário.",tag:"channel",ci:10,
+gq:[],p1:{m:"M1",run:"gorB",q:["gorA"]},p2:null,blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"gorA",st:"runnable",p:"acordando",sk:"2 KB"},{id:"gorB",st:"running",p:"P1/M1",sk:"2 KB"}],
+chan:{mode:"u",cap:0,slots:[],gA:"sending",gB:"receiving"},heap:[{l:"transferência",v:"gorA.stack → gorB.stack",hl:true},{l:"42",v:"cópia direta, zero buffer"}],rgns:["gor","chan","heap"],
+ex:"gorB executa <code>&lt;-ch</code>. O runtime detecta gorA na <code>sendq</code>. Em vez de buffer intermediário, <code>42</code> é copiado <strong>diretamente do stack de gorA para o stack de gorB</strong> — otimização \"direct send\". gorA é acordada e entra na fila. Esta é a magia do channel sem buffer: comunicação + sincronização simultâneas."},
+{title:"Handshake completo — ambas retomam execução",desc:"Canal sem buffer = barreira de sincronização garantida.",tag:"channel",ci:11,
+gq:[],p1:{m:"M1",run:"gorA",q:["gorB"]},p2:null,blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"gorA",st:"running",p:"P1/M1",sk:"2 KB"},{id:"gorB",st:"runnable",p:"P1 fila",sk:"2 KB"}],
+chan:{mode:"u",cap:0,slots:[],gA:"idle",gB:"idle"},heap:[{l:"gorB",v:"v = 42 ✓"},{l:"sincronização",v:"garantida ✓"}],rgns:["gor","chan"],
+ex:"O send de gorA só completou quando gorB estava pronta. Isso é mais poderoso que um mutex — é <strong>comunicação + sincronização em um único passo</strong>. gorB tem <code>v = 42</code>. Go idiom: <em>\"Don't communicate by sharing memory; share memory by communicating.\"</em> — Rob Pike"},
+]},
+
+/* 4 channel com buffer */
+{name:"channel com buffer",gmp:2,
+code:[
+{t:`<span class="kw">package</span> main`},{t:``},
+{t:`<span class="kw">func</span> <span class="fn">main</span>() {`},
+{t:`&nbsp;&nbsp;ch := <span class="fn">make</span>(<span class="kw">chan int</span>, <span class="num">3</span>)`},{t:``},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="kw">func</span>() { <span class="cm">// sender</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;ch &lt;- <span class="num">1</span>`},{t:`&nbsp;&nbsp;&nbsp;&nbsp;ch &lt;- <span class="num">2</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;ch &lt;- <span class="num">3</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;ch &lt;- <span class="num">4</span> <span class="cm">// bloqueia!</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">close</span>(ch)`},{t:`&nbsp;&nbsp;}()`},{t:``},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="kw">func</span>() { <span class="cm">// receiver</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">for</span> v := <span class="kw">range</span> ch {`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">// processa v</span>`},{t:`&nbsp;&nbsp;&nbsp;&nbsp;}`},{t:`&nbsp;&nbsp;}()`},{t:`}`},
+],
+steps:[
+{title:"make(chan int, 3) — buffer circular na heap",desc:"Cap=3. Sender pode enviar sem receiver presente.",tag:"channel",ci:3,
+gq:[],p1:{m:"M1",run:"main",q:[]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"main",st:"running",p:"P1/M1",sk:"2 KB"}],
+chan:{mode:"b",cap:3,slots:[null,null,null],gA:"idle",gB:"idle"},heap:[{l:"ch (chan int, 3)",v:"cap=3, len=0"}],rgns:["chan","heap"],
+ex:"<code>make(chan int, 3)</code> aloca um <strong>buffer circular de 3 inteiros na heap</strong>. Diferente do canal sem buffer, o sender pode enviar até 3 valores sem receiver — <strong>desacopla os ritmos</strong> de produção e consumo. Bloqueia apenas quando cheio (sender) ou vazio (receiver)."},
+{title:"Sender envia 1, 2, 3 — zero bloqueios",desc:"Buffer tem espaço. Sender avança livremente sem receiver.",tag:"channel",ci:8,
+gq:[],p1:{m:"M1",run:"sender",q:[]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"sender",st:"running",p:"P1/M1",sk:"2 KB"}],
+chan:{mode:"b",cap:3,slots:[1,2,3],gA:"sending",gB:"idle"},heap:[{l:"buffer",v:"[1, 2, 3] — cheio!",hl:true}],rgns:["gor","chan","heap"],
+ex:"Sender envia 1, 2 e 3 <strong>sem bloquear</strong>: slots disponíveis no buffer circular. Cada send é uma cópia para o buffer na heap. O receiver nem existe ainda e o sender já avançou. Este é o <strong>desacoplamento temporal</strong>: producer e consumer podem ter ritmos completamente diferentes."},
+{title:"ch <- 4 — buffer cheio! Sender bloqueia.",desc:"len=cap=3. Sender vai para sendq. P fica livre.",tag:"channel",ci:9,
+gq:[],p1:{m:"M1",run:null,q:[]},p2:{m:"M2",run:null,q:[]},blk:null,
+gors:[{id:"main",st:"runnable",p:"fila",sk:"2 KB"},{id:"sender",st:"blocked",p:"ch full",sk:"2 KB"}],
+chan:{mode:"b",cap:3,slots:[1,2,3],gA:"blk-send",gB:"idle"},heap:[{l:"ch",v:"len=3, cap=3 — CHEIO",hl:true},{l:"sender",v:"na send-waitq"}],rgns:["gor","chan","heap"],
+ex:"Buffer cheio: <code>ch &lt;- 4</code> bloqueia o sender. O runtime coloca sender na <strong>send-waitq</strong>. Quando um slot liberar, valor 4 é inserido automaticamente e sender acorda. P1 fica livre — pode executar outras goroutines enquanto aguarda. Zero CPU wasted."},
+{title:"Receiver lê 1 → slot livre → sender 4 acorda!",desc:"for-range consome do buffer. Slot liberado: valor 4 inserido, sender desbloqueado.",tag:"channel",ci:14,
+gq:[],p1:{m:"M1",run:"sender",q:[]},p2:{m:"M2",run:"recv",q:[]},blk:null,
+gors:[{id:"sender",st:"running",p:"P1/M1",sk:"2 KB"},{id:"recv",st:"running",p:"P2/M2",sk:"2 KB"}],
+chan:{mode:"b",cap:3,slots:[2,3,4],gA:"idle",gB:"receiving"},heap:[{l:"consumiu 1",v:"buffer: [2,3,4]"},{l:"sender",v:"desbloqueou ✓",hl:true}],rgns:["gor","chan","heap"],
+ex:"Receiver leu <code>1</code> → slot livre. O runtime <strong>acordou automaticamente o sender</strong> da sendq: valor 4 inserido no slot vazio. Buffer=[2,3,4], sender executa <code>close(ch)</code>. O <code>for range</code> vai consumir os restantes e encerrar quando detectar canal fechado com len=0."},
+{title:"close(ch) + for-range drena buffer — fim limpo",desc:"for range detecta closed+len=0 e encerra naturalmente.",tag:"channel",ci:10,
+gq:[],p1:{m:"M1",run:null,q:[]},p2:{m:"M2",run:"recv",q:[]},blk:null,
+gors:[{id:"sender",st:"done",p:"—",sk:"—"},{id:"recv",st:"running",p:"P2/M2",sk:"2 KB"}],
+chan:{mode:"b",cap:3,slots:[null,null,null],gA:"idle",gB:"receiving"},heap:[{l:"ch",v:"closed, len=0"},{l:"for range",v:"encerrou naturalmente ✓"}],rgns:["gor","chan"],
+ex:"<code>close(ch)</code> marca o canal como fechado. O <strong><code>for v := range ch</code></strong> continua consumindo valores restantes e encerra quando <code>len=0</code>. Regra de ouro: <em>apenas o sender fecha o canal</em>. Receiver nunca fecha — causaria panic se sender tentar enviar para canal fechado."},
+]},
+
+/* 5 syscall bloqueante */
+{name:"syscall bloqueante",gmp:2,
+code:[
+{t:`<span class="kw">package</span> main`},{t:``},{t:`<span class="kw">import</span> <span class="str">"os"</span>`},{t:``},
+{t:`<span class="kw">func</span> <span class="fn">main</span>() {`},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="kw">func</span>() {           <span class="cm">// G1</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;data, _ := os.<span class="fn">ReadFile</span>(<span class="str">"big.txt"</span>)`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">// G1 trava no OS kernel!</span>`},{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">_ = data</span>`},{t:`&nbsp;&nbsp;}()`},{t:``},
+{t:`&nbsp;&nbsp;<span class="gkw">go</span> <span class="kw">func</span>() {           <span class="cm">// G2</span>`},
+{t:`&nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">// trabalho CPU contínuo</span>`},{t:`&nbsp;&nbsp;}()`},{t:`}`},
+],
+steps:[
+{title:"G1 e G2 criadas — ambas executando normalmente",desc:"P1/M1 executa G1, P2/M2 executa G2.",tag:"runtime",ci:5,
+gq:[],p1:{m:"M1",run:"G1",q:[]},p2:{m:"M2",run:"G2",q:[]},blk:null,
+gors:[{id:"G1",st:"running",p:"P1/M1",sk:"4 KB"},{id:"G2",st:"running",p:"P2/M2",sk:"4 KB"}],
+chan:null,heap:[{l:"G1",v:"prestes a chamar ReadFile"},{l:"G2",v:"executando CPU work"}],rgns:["gor"],
+ex:"Estado inicial normal: G1 e G2 executam em paralelo nos dois cores. G1 está prestes a chamar <code>os.ReadFile()</code> — uma syscall que trava o OS thread até o disco responder. Vamos ver como o runtime reage para não desperdiçar o core durante a espera de I/O."},
+{title:"G1 → os.ReadFile() → M1 trava no kernel do OS",desc:"Syscall bloqueante: OS suspende M1 aguardando resposta do disco.",tag:"syscall",ci:6,
+gq:[],p1:{m:"M1",run:"G1",q:[]},p2:{m:"M2",run:"G2",q:[]},blk:{items:[{m:"M1",g:"G1",r:"syscall: read(fd=big.txt) — aguardando disco"}]},
+gors:[{id:"G1",st:"blocked",p:"M1 kernel",sk:"4 KB"},{id:"G2",st:"running",p:"P2/M2",sk:"4 KB"}],
+chan:null,heap:[{l:"M1",v:"bloqueado no kernel",hl:true},{l:"P1",v:"ainda vinculado a M1"}],rgns:["gor","heap"],
+ex:"<code>os.ReadFile</code> → syscall <code>read()</code> → OS bloqueia M1 até o disco responder (pode levar ms ou segundos). Neste momento, <strong>P1 ainda está ligado a M1</strong>. Nenhuma goroutine pode rodar em P1. O runtime mantém um <strong>sysmon goroutine</strong> — goroutine interna que acorda a cada ~20µs para detectar exatamente essa situação."},
+{title:"Sysmon detecta M1 bloqueado → P handoff para M3",desc:"P1 se desvincula de M1. M3 do pool assume P1 imediatamente.",tag:"syscall",ci:7,
+gq:[],p1:{m:"M3",run:null,q:[]},p2:{m:"M2",run:"G2",q:[]},blk:{items:[{m:"M1",g:"G1",r:"syscall: read() — aguardando I/O"}]},
+gors:[{id:"G1",st:"blocked",p:"M1 kernel",sk:"4 KB"},{id:"G2",st:"running",p:"P2/M2",sk:"4 KB"}],
+chan:null,heap:[{l:"P1 handoff",v:"M1 → M3",hl:true},{l:"M1",v:"no kernel com G1"},{l:"M3",v:"pronto para executar"}],rgns:["gor","heap"],
+ex:"Sysmon executa um <strong>P handoff</strong>: desvincula P1 de M1 e o associa a M3 (do pool ou criado agora). M1 continua bloqueado no kernel — mas <strong>P1 está livre</strong>. M3 pode executar goroutines em P1 normalmente. Este mecanismo garante que syscalls bloqueantes não travam o scheduler inteiro."},
+{title:"P1/M3 executa G3 — zero CPUs desperdiçados",desc:"Dois cores trabalhando mesmo com G1 travada no disco.",tag:"runtime",ci:12,
+gq:[],p1:{m:"M3",run:"G3",q:[]},p2:{m:"M2",run:"G2",q:[]},blk:{items:[{m:"M1",g:"G1",r:"syscall: read() — I/O pendente"}]},
+gors:[{id:"G1",st:"blocked",p:"M1 kernel",sk:"4 KB"},{id:"G2",st:"running",p:"P2/M2",sk:"4 KB"},{id:"G3",st:"running",p:"P1/M3",sk:"4 KB"}],
+chan:null,heap:[{l:"throughput",v:"2 cores ocupados ✓",hl:true},{l:"G1",v:"esperando I/O (custo zero)"}],rgns:["gor","heap"],
+ex:"Resultado do handoff: <strong>ambos os cores estão sendo usados</strong> mesmo com G1 travada no disco. Este modelo permite Go servir <strong>milhares de conexões simultâneas</strong> com muito poucos OS threads. Cada conexão é uma goroutine; syscalls de rede não bloqueiam outras goroutines."},
+{title:"Disco responde → M1 retorna, tenta readquirir P",desc:"Syscall terminou. M1 acorda com G1 pronta. Todos os P's ocupados.",tag:"syscall",ci:8,
+gq:["G1"],p1:{m:"M3",run:"G3",q:[]},p2:{m:"M2",run:"G2",q:[]},blk:null,
+gors:[{id:"G1",st:"runnable",p:"fila global",sk:"4 KB"},{id:"G2",st:"running",p:"P2/M2",sk:"4 KB"},{id:"G3",st:"running",p:"P1/M3",sk:"4 KB"}],
+chan:null,heap:[{l:"G1",v:"na fila global (runnable)"},{l:"M1",v:"sem P → volta ao pool",hl:true}],rgns:["gor","heap"],
+ex:"Syscall terminou. M1 acorda com G1 pronta. M1 <strong>tenta readquirir um P</strong> — P1 e P2 estão ocupados. Sem P disponível, M1 coloca G1 na <strong>fila global</strong> e M1 dorme no thread pool. G1 ficará na fila global até o próximo P verificar (a cada 61 iterações ou quando sua fila local esvaziar)."},
+{title:"P1 pega G1 da fila global — execução retomada",desc:"G1 retoma exatamente onde ReadFile retornou, agora em M3.",tag:"runtime",ci:8,
+gq:[],p1:{m:"M3",run:"G1",q:[]},p2:{m:"M2",run:"G2",q:[]},blk:null,
+gors:[{id:"G1",st:"running",p:"P1/M3",sk:"4 KB"},{id:"G2",st:"running",p:"P2/M2",sk:"4 KB"},{id:"G3",st:"done",p:"—",sk:"—"}],
+chan:null,heap:[{l:"G1 retomou",v:"data disponível ✓",hl:true},{l:"M1",v:"no thread pool (idle)"}],rgns:["gor","heap"],
+ex:"P1 verificou a fila global e encontrou G1. G1 executa agora em P1/<strong>M3</strong> — não no M1 original. Isso não importa: o estado de G1 (stack, ponteiro de instrução, registradores salvos) foi <strong>preservado integralmente</strong>. G1 continua exatamente onde <code>ReadFile</code> retornou, com <code>data</code> populado."},
+]},
+];
+
+let CSC=0,CSTEP=-1,tmr=null;
+const $=id=>document.getElementById(id);
+
+function chip(id,st){return`<div class="gc ${st}"><div class="gd"></div>${id}</div>`;}
+
+function renderP(pid,d){
+  const box=$(pid+'-box');
+  if(!d){box.style.display='none';return;}
+  box.style.display='block';
+  box.className=`p-box${d.run?' active':''}${d.steal?' stealing':''}`;
+  $(pid+'-m').textContent=d.m;
+  const r=$(pid+'-run');
+  if(d.run){r.className='run-slot on';r.innerHTML=`<span class="run-lbl">executando:</span>${chip(d.run,'running')}`;}
+  else{r.className='run-slot';r.innerHTML=`<span class="run-lbl">executando:</span><span style="color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:.6rem">idle</span>`;}
+  const lq=$(pid+'-lq');
+  lq.innerHTML=d.q&&d.q.length?d.q.map(g=>chip(g,'runnable')).join(''):`<span style="font-size:.58rem;color:var(--text-dim)">vazia</span>`;
+}
+
+function renderGQ(items){
+  const box=$('gq-box'),row=$('gq-row');
+  if(items&&items.length){box.classList.add('active');row.innerHTML=items.map(g=>chip(g,'runnable')).join('');}
+  else{box.classList.remove('active');row.innerHTML=`<span style="font-size:.6rem;color:var(--text-dim)">vazia</span>`;}
+}
+
+function renderBlk(blk){
+  const box=$('blk-box'),row=$('blk-row');
+  if(blk&&blk.items&&blk.items.length){
+    box.classList.add('show');
+    row.innerHTML=blk.items.map(b=>`<div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;width:100%"><span class="m-tag blk">${b.m}</span>${chip(b.g,'blocked')}<div class="blk-reason">${b.r}</div></div>`).join('');
+  }else{box.classList.remove('show');row.innerHTML='';}
+}
+
+function renderGors(gors){
+  const tbody=$('gt-body');
+  if(!gors||!gors.length){tbody.innerHTML=`<tr><td colspan="4" style="font-size:.58rem;color:var(--text-dim);padding:8px 0">nenhuma</td></tr>`;return;}
+  tbody.innerHTML=gors.map(g=>{
+    const rc=g.st==='running'?'rr':g.st==='blocked'?'rb':g.st==='done'?'rd':'';
+    return`<tr class="${rc}"><td style="color:var(--text)">${g.id}</td><td><span class="sp ${g.st}"><div class="sd"></div>${g.st}</span></td><td style="color:var(--text-dim)">${g.p}</td><td style="color:var(--text-dim)">${g.sk}</td></tr>`;
+  }).join('');
+}
+
+function renderChan(c){
+  const el=$('chan-vis'),reg=$('reg-chan');
+  if(!c){el.innerHTML=`<div style="font-size:.6rem;color:var(--text-dim)">não ativo neste cenário</div>`;reg.classList.remove('active');return;}
+  reg.classList.add('active');
+  const desc=c.mode==='u'?`make(chan int) — cap=0, rendezvous`:`make(chan int, ${c.cap}) — cap=${c.cap}`;
+  let slots=c.mode==='u'?`<div class="ch-slot" style="width:68px;font-size:.56rem;text-align:center">rendezvous<br>sync</div>`:c.slots.map(v=>`<div class="ch-slot ${v!==null?'filled':''}">${v!==null?v:''}</div>`).join('');
+  el.innerHTML=`<div class="ch-desc">${desc}</div><div class="ch-slots">${slots}</div><div class="ch-gors"><span class="ch-gor ${c.gA}">gorA: ${c.gA}</span><span style="color:var(--text-dim);font-size:.58rem">→</span><span class="ch-gor ${c.gB}">gorB: ${c.gB}</span></div>`;
+}
+
+function renderHeap(items){
+  const el=$('heap-items'),reg=$('reg-heap');
+  if(!items||!items.length){el.innerHTML=`<div style="font-size:.6rem;color:var(--text-dim)">—</div>`;reg.classList.remove('active');return;}
+  reg.classList.add('active');
+  el.innerHTML=items.map(it=>`<div class="hi ${it.hl?'hl':''}"><div class="hi-l">${it.l}</div><div class="hi-v">${it.v}</div></div>`).join('');
+}
+
+function updProg(){const s=SC[CSC];$('prog').style.width=(CSTEP<0?0:((CSTEP+1)/s.steps.length)*100)+'%';}
+
+function load(idx){
+  if(tmr){clearTimeout(tmr);tmr=null;}
+  CSC=idx;CSTEP=-1;
+  const s=SC[idx];
+  document.querySelectorAll('.sc-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
+  $('gmpval').textContent=s.gmp;
+  $('code-display').innerHTML=s.code.map((l,i)=>`<span class="cl" id="cl-${i}">${l.t||'&nbsp;'}</span>`).join('\n');
+  $('steps-list').innerHTML=s.steps.map((st,i)=>`<div class="step" id="stp-${i}" onclick="jumpTo(${i})"><div class="step-num">${String(i+1).padStart(2,'0')}</div><div><div class="step-title">${st.title}</div><div class="step-desc">${st.desc}</div><span class="step-tag tag-${st.tag}">${st.tag}</span></div></div>`).join('');
+  renderGQ([]);renderP('p1',{m:'M1',run:null,q:[]});renderP('p2',s.gmp>=2?{m:'M2',run:null,q:[]}:null);
+  renderBlk(null);renderGors([]);renderChan(null);renderHeap([]);
+  ['gor','chan','heap'].forEach(r=>$(`reg-${r}`).classList.remove('active'));
+  updProg();
+  $('expl').innerHTML=`<h3>📌 Pronto — ${s.name}</h3><p>Clique em <strong>▶ próximo passo</strong> para iniciar.</p>`;
+}
+
+function applyStep(idx){
+  const s=SC[CSC],st=s.steps[idx];
+  document.querySelectorAll('.cl').forEach(l=>l.classList.remove('hl'));
+  const cl=$(`cl-${st.ci}`);if(cl)cl.classList.add('hl');
+  document.querySelectorAll('.step').forEach((el,i)=>{
+    el.classList.toggle('active',i===idx);
+    el.querySelector('.step-desc').style.display=i===idx?'block':'none';
+    el.querySelector('.step-tag').style.display=i===idx?'inline-block':'none';
+  });
+  renderGQ(st.gq);renderP('p1',st.p1);renderP('p2',st.p2);renderBlk(st.blk);
+  renderGors(st.gors);renderChan(st.chan);renderHeap(st.heap);
+  ['gor','chan','heap'].forEach(r=>$(`reg-${r}`).classList.toggle('active',!!(st.rgns&&st.rgns.includes(r))));
+  $('expl').innerHTML=`<h3>💡 passo ${idx+1} — ${st.title}</h3><p>${st.ex}</p>`;
+  updProg();
+}
+
+function runNext(){
+  const s=SC[CSC];CSTEP++;
+  if(CSTEP>=s.steps.length){CSTEP=s.steps.length-1;$('expl').innerHTML=`<h3>✅ Simulação concluída!</h3><p>Todos os passos de <strong>${s.name}</strong> foram executados. Escolha outro cenário ou clique em ↺ resetar.</p>`;return;}
+  applyStep(CSTEP);
+}
+
+function runAll(){
+  load(CSC);let i=0;
+  function nxt(){if(i>=SC[CSC].steps.length)return;CSTEP=i;applyStep(i++);tmr=setTimeout(nxt,1800);}
+  nxt();
+}
+
+function resetAll(){if(tmr){clearTimeout(tmr);tmr=null;}load(CSC);}
+function jumpTo(idx){CSTEP=idx;applyStep(idx);}
+
+load(0);
+</script>
+</body>
+</html>
